@@ -1,0 +1,14 @@
+{
+  "name": "75 Hard Tracker",
+  "short_name": "75 Hard",
+  "description": "Shared 75 Hard challenge tracker with daily 9am reminders.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0a0a0d",
+  "theme_color": "#7c5cff",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}

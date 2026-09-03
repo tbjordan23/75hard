@@ -4,14 +4,15 @@ Guidance for Claude Code when working in this project specifically. See the pare
 
 ## What this is
 
-A shared **75 Hard challenge tracker** for a small group (Travis + friends/family), with a soft-penalty scoring rule, per-person nutrition goals (broken out by meal), body-weight goal tracking, progress-photo history, a friends system for photo-based accountability, daily motivational quotes, and a day-complete celebration. Visual style is a single dark theme (no light mode), modeled after Frame.io.
+A shared **75 Hard challenge tracker** for a small group (Travis + friends/family), with a soft-penalty scoring rule, per-person nutrition goals (broken out by meal), body-weight goal tracking, progress-photo history, a friends system for photo-based accountability, daily motivational quotes, a day-complete celebration, and a daily 9am push-notification reminder. Visual style is a single dark theme (no light mode), modeled after Frame.io.
 
-**Stack:** Vanilla JS single-page app, same pattern as `mindmeter/` — no build step, no framework, no npm dependencies. `server.js` is the entire backend; `index.html` is the entire frontend. Login is name + 4-6 digit PIN (no email, no real auth — this is low-stakes and scoped to people you trust).
+**Stack:** Vanilla JS single-page app, same pattern as `mindmeter/` — no build step, no framework. `server.js` is the entire backend; `index.html` is the entire frontend. Login is name + 4-6 digit PIN (no email, no real auth — this is low-stakes and scoped to people you trust). One intentional npm dependency: **`web-push`** (see the Push notifications section) — everything else is still Node built-ins only. Run `npm install` once before first use.
 
 **Run locally:**
 ```
 cd 75hard
-node server.js        # serves on http://localhost:3000
+npm install            # one-time: installs web-push
+node server.js         # serves on http://localhost:3000
 ```
 
 ## Architecture
@@ -25,8 +26,10 @@ node server.js        # serves on http://localhost:3000
   - `POST /api/weight/goal` — sets/updates unit + Day 1 weight + goal weight. `POST /api/weight/log`, `POST /api/weight/log/remove` — daily weigh-ins.
   - `POST /api/photo`, `GET /api/photo`, `POST /api/photo/remove` — progress photo upload/fetch/delete. Fetch is access-controlled: viewable only by the owner or a confirmed friend.
   - `POST /api/friends/request`, `/accept`, `/decline`, `/remove`, `GET /api/directory` — mutual friend graph.
+  - `GET /api/push/vapid-key`, `POST /api/push/subscribe`, `POST /api/push/unsubscribe` — daily 9am reminder push notifications (see dedicated section below).
   - `POST /api/restart` — manual full wipe of a user's history (not triggered automatically — see scoring rule below).
-- `index.html` — all CSS/JS inline, fetches the API and renders login → quote of the day → today's checklist/photo/nutrition/body weight (with a motivational quote strip between each card) → progress → 75-day calendar → my photo gallery → friends → group table.
+  - Static: `GET /manifest.json`, `GET /sw.js`, `GET /icons/*` — PWA install + service-worker files, served from `STATIC_FILES` in `server.js` (not a general static-file server; add new static assets to that map, don't build a generic file server for this app).
+- `index.html` — all CSS/JS inline, single-page app with two client-side tabs (`#tab-today` / `#tab-progress`, toggled via `switchTab()` — no routing, no page reload). **Today** tab: quote of the day → checklist/photo/nutrition/body weight (with a motivational quote strip between each card) → progress → 75-day calendar → friends → group table. **Progress** tab: every progress photo in chronological order. A photo-viewing modal (`openPhotoModal()`) is shared by both — calendar cells and Progress-tab thumbnails both open it.
 
 ## The scoring rule (important — this diverges from "real" 75 Hard)
 
@@ -51,7 +54,8 @@ Food entries are tagged with a `meal` (`breakfast`/`lunch`/`dinner`, see `MEALS`
 The `photo` task is **not a manual toggle** — `POST /api/toggle` rejects it. Completion is derived from an actual uploaded image (`day.photo = {ext, uploadedAt}`), stored as a file under `data/photos/`, named by a hash of the owner's key + date (not the raw key, just to keep filesystem paths predictable). `GET /api/photo` streams it back, gated to the owner or a confirmed friend. No new server endpoint was needed for the two features below — both are read entirely from data `/api/state` already returns.
 
 - **Take photo vs. choose from library**: the Today card has two separate hidden `<input type="file">` elements (`photo-camera-input` has `capture="environment"`, `photo-library-input` doesn't) behind two explicit buttons, both funneled through the shared `handlePhotoFile()` uploader. That function guards on `creds` being non-null in the (async) `FileReader.onload` callback — a user can log out while a large file is still being read, and without the guard the stale closure throws trying to read `creds.name`.
-- **My photo gallery**: a "My photos" grid at the bottom of the Your Progress card (`renderPhotoGallery()`) lists every date in `me.days` that has a `.photo`, newest first, each linking to the full-size `/api/photo` URL. This is the user's own full history, same unbounded treatment as a friend's photo strip.
+- **Progress tab** (`renderProgressTimeline()`): every date in `me.days` with a `.photo`, in **ascending** date order (oldest first — a before-to-now progression, the opposite order from the friend/group photo strips, which are newest-first) with a "Day N" badge (`dayNumberFor()`) and that day's weight if logged. This replaced an earlier "My photos" grid embedded in the Your Progress card — don't re-add that; the Progress tab is the one place for browsing your own photo history now, and the calendar section links to it.
+- **Calendar click-to-view** (`openPhotoModal()` / `#photo-modal-backdrop`): clicking any past-or-today calendar cell, or any Progress-tab thumbnail, opens a shared lightbox modal showing that day's photo (or a "no photo logged" empty state). Closes via the × button, backdrop click, or Escape. **Gotcha already hit once**: give `[hidden]` elements an explicit `[hidden] { display: none; }` override wherever you also set a non-`none` `display` on the same selector (as `.photo-modal-backdrop` does for its `flex` layout) — otherwise the attribute-based hide silently loses to the class rule's specificity and the element stays visible.
 
 ## Body weight
 
@@ -77,6 +81,21 @@ Defined in `server.js` as `STANDARD_TASKS` / `BULK_TASKS` (picked per-user by `t
 ## Motivational quotes
 
 `QUOTES` in `index.html` is a static bank of short attributed sayings. Selection is entirely client-side and deterministic per UTC calendar date: `quotesForToday(dateStr, 5)` hashes the date string and Fisher-Yates shuffles the bank with that seed, so everyone in the group sees the same "quote of the day" (rendered prominently above the Today card) and the same 4 divider quotes between the other cards, and they only change once a day — not on every reload. No server involvement; don't add an endpoint for this.
+
+## Push notifications: daily 9am reminder
+
+Per the user's explicit request, each subscribed device gets a push notification at **9am in that device's own local timezone** (not one fixed server time), saying "75 Hard — stay locked in" plus the quote of the day.
+
+- **The one intentional dependency**: `web-push` (`package.json`). Implementing Web Push's payload encryption (RFC 8291) and VAPID auth (RFC 8292) by hand would be a lot of fiddly crypto code to get exactly right for a feature that has to actually work — using the standard, well-vetted library was the deliberate tradeoff against this project's usual zero-dependency rule. Don't add further dependencies without a similarly strong reason; this app should otherwise stay boring/built-in.
+- **VAPID keys** are generated once (`ensureVapidKeys()`) and persisted as `data.vapid = {publicKey, privateKey}` in the same JSON store as everything else — not env vars, so a fresh clone/deploy just works with zero config, consistent with the rest of the app. `GET /api/push/vapid-key` exposes only the public half.
+- **Subscriptions** live per-user at `user.pushSubscriptions[]`, each `{ endpoint, keys: {p256dh, auth}, timezone, lastSentDate, createdAt }`, deduped by `endpoint`. `timezone` is whatever `Intl.DateTimeFormat().resolvedOptions().timeZone` reports client-side at subscribe time — validated server-side by trying to construct an `Intl.DateTimeFormat` with it (invalid IANA strings throw).
+- **The scheduler** (`tickPushScheduler()`, `setInterval` every 30s from server boot) computes each subscription's current local `HH:mm` and local calendar date (`en-CA` locale trick for a clean `YYYY-MM-DD`), and sends when the local time reads exactly `09:00` **and** `lastSentDate` isn't already today's date for that subscription — that guard is what prevents a duplicate send within the same minute-window and survives server restarts (it's persisted, not in-memory). `lastSentDate` is set *before* the async send call resolves, deliberately, so a slow send can't cause a second attempt later in the same tick.
+- **Same quote-of-the-day algorithm exists twice**: `QUOTES` + the hash/shuffle picker in `server.js` is a byte-for-byte copy of the one in `index.html`, so the push notification's quote matches what the app shows that day. **Edit both if you ever touch the quotes bank or the picker logic** — there is no shared module to import from (no build step), so this is a deliberate, documented duplication, not an oversight.
+- **Expired subscriptions self-clean**: a `404`/`410` from the push service means the browser unregistered it — the scheduler removes it from `user.pushSubscriptions` on that response so it stops retrying forever.
+- **Client-side gating** (`initNotifyCard()` in `index.html`) shows one of four states in a small card above the quote of the day: unsupported browsers get nothing (card stays `hidden`); iOS Safari not running as an installed PWA gets an "Add to Home Screen" instructional card (iOS only allows web push for installed home-screen apps — a bare Safari tab cannot receive it at all, no workaround); a supported context with no active subscription gets an "Enable" button; an active subscription shows "reminder is on" with a "Turn off" button.
+- **Shared-device self-healing**: whenever `initNotifyCard()` runs and the browser already has a push subscription (from `pushManager.getSubscription()`), it silently re-POSTs that subscription under whichever account is *currently* logged in. So if two people share one phone, the reminder always belongs to whoever's logged in when the app was last opened on that device — there's no explicit "this subscription belongs to user X" conflict UI, it just always re-claims on load.
+- **Icons**: `icons/icon-192.png`, `icons/icon-512.png`, `icons/apple-touch-icon.png` were generated once with Pillow (violet gradient + white "75", matching the login mark) — see git history if you need to regenerate them; there's no in-repo generation script, they're just committed PNGs like any other static asset.
+- Manual testing note: a real Notification-permission grant requires an actual interactive click in a real browser — it cannot be scripted or automated (that's the platform's security model working as intended), so the subscribe flow always needs a live human test on a real device, not just an automated one.
 
 ## Visual design: single dark theme, Frame.io-inspired
 

@@ -1,11 +1,15 @@
 // 75 Hard Tracker — server.js
-// Node.js HTTP server + tiny JSON-file datastore. No external dependencies.
+// Node.js HTTP server + tiny JSON-file datastore. The one intentional
+// dependency is `web-push` (daily 9am reminder notifications) — implementing
+// the Web Push encryption/VAPID protocol by hand is exactly the kind of thing
+// not worth doing from scratch. Everything else stays Node built-ins.
 // Serves index.html for the page and a small JSON API for auth + daily task updates.
 
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const webpush = require('web-push');
 
 const PORT = process.env.PORT || 3000;
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
@@ -13,6 +17,14 @@ const DATA_FILE = path.join(DATA_DIR, 'data.json');
 const PHOTOS_DIR = path.join(DATA_DIR, 'photos');
 const MAX_PHOTO_BYTES = 6 * 1024 * 1024;
 const PHOTO_MIME = { jpg: 'image/jpeg', png: 'image/png', webp: 'image/webp', gif: 'image/gif' };
+const VAPID_CONTACT = process.env.VAPID_CONTACT || 'mailto:tbjordan@gmail.com';
+const STATIC_FILES = {
+  '/manifest.json': { file: path.join(__dirname, 'manifest.json'), type: 'application/manifest+json' },
+  '/sw.js': { file: path.join(__dirname, 'sw.js'), type: 'application/javascript' },
+  '/icons/icon-192.png': { file: path.join(__dirname, 'icons', 'icon-192.png'), type: 'image/png' },
+  '/icons/icon-512.png': { file: path.join(__dirname, 'icons', 'icon-512.png'), type: 'image/png' },
+  '/icons/apple-touch-icon.png': { file: path.join(__dirname, 'icons', 'apple-touch-icon.png'), type: 'image/png' },
+};
 
 // The checkbox rules of 75 Hard — but two of them flex per person:
 //
@@ -53,6 +65,75 @@ function validWeight(unit, n) {
   return Number.isFinite(n) && n >= range[0] && n <= range[1];
 }
 
+// ---------- motivational quotes (for the daily push notification) ----------
+// MUST stay byte-for-byte identical to the QUOTES array in index.html — the
+// deterministic per-date pick only matches what the app displays if both
+// copies agree. If you edit one, edit the other.
+const QUOTES = [
+  { text: "Discipline is the bridge between goals and accomplishment.", author: "Jim Rohn" },
+  { text: "Motivation is what gets you started. Habit is what keeps you going.", author: "Jim Ryun" },
+  { text: "The successful warrior is the average man, with laser-like focus.", author: "Bruce Lee" },
+  { text: "You don't have to be extreme, just consistent.", author: "Unknown" },
+  { text: "Suffer the pain of discipline or suffer the pain of regret.", author: "Jim Rohn" },
+  { text: "The pain you feel today will be the strength you feel tomorrow.", author: "Unknown" },
+  { text: "It's supposed to be hard. If it wasn't hard, everyone would do it.", author: "Tom Hanks" },
+  { text: "We are what we repeatedly do. Excellence, then, is not an act, but a habit.", author: "Will Durant" },
+  { text: "The only bad workout is the one that didn't happen.", author: "Unknown" },
+  { text: "Discipline equals freedom.", author: "Jocko Willink" },
+  { text: "Don't count the days, make the days count.", author: "Muhammad Ali" },
+  { text: "No one is going to come help you. No one's coming to save you.", author: "David Goggins" },
+  { text: "The mind will always give up before the body.", author: "David Goggins" },
+  { text: "You have to be able to endure hardship and pain.", author: "David Goggins" },
+  { text: "It's not who's going to let me; it's who's going to stop me.", author: "Ayn Rand" },
+  { text: "Champions keep playing until they get it right.", author: "Billie Jean King" },
+  { text: "The difference between the impossible and the possible lies in a person's determination.", author: "Tommy Lasorda" },
+  { text: "Whether you think you can or you think you can't, you're right.", author: "Henry Ford" },
+  { text: "The body achieves what the mind believes.", author: "Napoleon Hill" },
+  { text: "Strength does not come from winning. Your struggles develop your strengths.", author: "Arnold Schwarzenegger" },
+  { text: "A champion is someone who gets up when they can't.", author: "Jack Dempsey" },
+  { text: "Consistency is what transforms average into excellence.", author: "Unknown" },
+  { text: "Do something today that your future self will thank you for.", author: "Unknown" },
+  { text: "Small daily improvements are the key to staggering long-term results.", author: "Unknown" },
+  { text: "The only way to finish is to start.", author: "Unknown" },
+  { text: "It always seems impossible until it's done.", author: "Nelson Mandela" },
+  { text: "Comfort is the enemy of progress.", author: "P.T. Barnum" },
+  { text: "You are your only limit.", author: "Unknown" },
+  { text: "What seems impossible today will one day become your warm-up.", author: "Unknown" },
+  { text: "The cave you fear to enter holds the treasure you seek.", author: "Joseph Campbell" },
+  { text: "Nothing will work unless you do.", author: "Maya Angelou" },
+  { text: "Well done is better than well said.", author: "Benjamin Franklin" },
+  { text: "You will never always be motivated, so you must learn to be disciplined.", author: "Unknown" },
+  { text: "The moment you want to quit is the moment you need to keep pushing.", author: "Unknown" },
+  { text: "Effort only fully releases its reward after a person refuses to quit.", author: "Napoleon Hill" },
+  { text: "Fall seven times, stand up eight.", author: "Japanese proverb" },
+  { text: "Great things never came from comfort zones.", author: "Unknown" },
+  { text: "Push yourself, because no one else is going to do it for you.", author: "Unknown" },
+  { text: "One day or day one — you decide.", author: "Unknown" },
+  { text: "Excuses don't get you results.", author: "Unknown" },
+];
+function hashStr(s) {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return h >>> 0;
+}
+function mulberry32(seed) {
+  return function () {
+    seed |= 0; seed = (seed + 0x6D2B79F5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+function quoteOfTheDay(dateStr) {
+  const rand = mulberry32(hashStr(dateStr));
+  const idxs = QUOTES.map((_, i) => i);
+  for (let i = idxs.length - 1; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1));
+    const tmp = idxs[i]; idxs[i] = idxs[j]; idxs[j] = tmp;
+  }
+  return QUOTES[idxs[0]];
+}
+
 // A day's calorie/protein target is "met" if protein clears the goal (protein
 // minimums matter whether you're cutting or bulking) and calories land within
 // this tolerance of the goal in either direction. Nobody without goals set yet
@@ -79,6 +160,21 @@ function loadData() {
 
 function saveData(data) {
   fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
+}
+
+// VAPID keys authenticate this server to push services (Google/Mozilla/Apple)
+// for Web Push. Auto-generated once and persisted to the data store (which
+// lives on the Railway volume) rather than requiring env-var setup — same
+// zero-config philosophy as the rest of this app. Call once at boot.
+function ensureVapidKeys() {
+  const data = loadData();
+  if (!data.vapid) {
+    data.vapid = webpush.generateVAPIDKeys();
+    saveData(data);
+    console.log('Generated new VAPID keypair for push notifications.');
+  }
+  webpush.setVapidDetails(VAPID_CONTACT, data.vapid.publicKey, data.vapid.privateKey);
+  return data.vapid;
 }
 
 // ---------- date helpers (all in UTC, YYYY-MM-DD strings) ----------
@@ -309,6 +405,7 @@ function authenticate(data, name, pin) {
   user.incoming = user.incoming || [];
   user.outgoing = user.outgoing || [];
   user.weightGoal = user.weightGoal || null;
+  user.pushSubscriptions = user.pushSubscriptions || [];
   return { key, user };
 }
 
@@ -322,6 +419,7 @@ function resolveUser(data, name) {
   user.incoming = user.incoming || [];
   user.outgoing = user.outgoing || [];
   user.weightGoal = user.weightGoal || null;
+  user.pushSubscriptions = user.pushSubscriptions || [];
   return { key, user };
 }
 
@@ -335,6 +433,73 @@ const server = http.createServer(async (req, res) => {
       const html = fs.readFileSync(path.join(__dirname, 'index.html'));
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
       return res.end(html);
+    }
+
+    // PWA static files (manifest, service worker, icons) — needed for "Add to
+    // Home Screen" installability and for the service worker to receive pushes.
+    if (req.method === 'GET' && STATIC_FILES[url.pathname]) {
+      const entry = STATIC_FILES[url.pathname];
+      if (!fs.existsSync(entry.file)) { res.writeHead(404); return res.end('Not found'); }
+      const buf = fs.readFileSync(entry.file);
+      const headers = { 'Content-Type': entry.type, 'Content-Length': buf.length };
+      if (url.pathname === '/sw.js') headers['Service-Worker-Allowed'] = '/';
+      res.writeHead(200, headers);
+      return res.end(buf);
+    }
+
+    // The public half of the VAPID keypair — needed client-side to subscribe.
+    // Not a secret; the private half never leaves the server.
+    if (req.method === 'GET' && url.pathname === '/api/push/vapid-key') {
+      return sendJson(res, 200, { publicKey: ensureVapidKeys().publicKey });
+    }
+
+    // Register (or update) a push subscription for the logged-in user's device.
+    // Dedupes by endpoint — resubscribing the same device updates its timezone
+    // instead of creating a duplicate entry.
+    if (req.method === 'POST' && url.pathname === '/api/push/subscribe') {
+      const body = await readBody(req);
+      const data = loadData();
+      const auth = authenticate(data, body.name, body.pin);
+      if (!auth) return sendJson(res, 401, { error: 'Not authenticated.' });
+      const { user } = auth;
+
+      const sub = body.subscription;
+      if (!sub || typeof sub.endpoint !== 'string' || !sub.keys || typeof sub.keys.p256dh !== 'string' || typeof sub.keys.auth !== 'string') {
+        return sendJson(res, 400, { error: 'Invalid push subscription.' });
+      }
+      const timezone = String(body.timezone || '');
+      try { Intl.DateTimeFormat(undefined, { timeZone: timezone }); }
+      catch (e) { return sendJson(res, 400, { error: 'Invalid timezone.' }); }
+
+      const existing = user.pushSubscriptions.find(s => s.endpoint === sub.endpoint);
+      if (existing) {
+        existing.keys = sub.keys;
+        existing.timezone = timezone;
+      } else {
+        user.pushSubscriptions.push({
+          endpoint: sub.endpoint,
+          keys: sub.keys,
+          timezone,
+          lastSentDate: null,
+          createdAt: new Date().toISOString(),
+        });
+      }
+      saveData(data);
+      return sendJson(res, 200, { ok: true });
+    }
+
+    // Unsubscribe one device from push (user turned reminders off on that device).
+    if (req.method === 'POST' && url.pathname === '/api/push/unsubscribe') {
+      const body = await readBody(req);
+      const data = loadData();
+      const auth = authenticate(data, body.name, body.pin);
+      if (!auth) return sendJson(res, 401, { error: 'Not authenticated.' });
+      const { user } = auth;
+
+      const endpoint = String(body.endpoint || '');
+      user.pushSubscriptions = user.pushSubscriptions.filter(s => s.endpoint !== endpoint);
+      saveData(data);
+      return sendJson(res, 200, { ok: true });
     }
 
     // Login / register: creates a user on first use, validates PIN on subsequent uses.
@@ -359,6 +524,8 @@ const server = http.createServer(async (req, res) => {
           friends: [],
           incoming: [],
           outgoing: [],
+          weightGoal: null,
+          pushSubscriptions: [],
         };
         data.users[key] = user;
         saveData(data);
@@ -794,7 +961,72 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
+// ---------- daily 9am push reminder ----------
+// Each device subscribed via /api/push/subscribe carries its own IANA
+// timezone (detected client-side at subscribe time), so "9am" means 9am in
+// THAT device's zone, not one fixed server time. Checked every 30s; a
+// per-subscription `lastSentDate` (that device's local calendar date)
+// guards against sending twice in the same 09:00 minute and survives
+// server restarts since it's persisted with everything else.
+function localHourMinute(timeZone) {
+  return new Date().toLocaleString('en-US', { timeZone, hour12: false, hour: '2-digit', minute: '2-digit' });
+}
+function localDateKey(timeZone) {
+  return new Date().toLocaleDateString('en-CA', { timeZone }); // en-CA -> YYYY-MM-DD
+}
+
+async function tickPushScheduler() {
+  const data = loadData();
+  let changed = false;
+
+  for (const key of Object.keys(data.users)) {
+    const user = data.users[key];
+    const subs = user.pushSubscriptions || [];
+    for (const sub of subs) {
+      let hm, dateKey;
+      try {
+        hm = localHourMinute(sub.timezone);
+        dateKey = localDateKey(sub.timezone);
+      } catch (e) {
+        continue; // malformed timezone saved somehow — skip rather than crash the tick
+      }
+      if (hm !== '09:00' || sub.lastSentDate === dateKey) continue;
+
+      sub.lastSentDate = dateKey; // mark first, so a slow/failed send can't cause a duplicate this tick
+      changed = true;
+      const quote = quoteOfTheDay(dateKey);
+      const payload = JSON.stringify({
+        title: '75 Hard — stay locked in',
+        body: '“' + quote.text + '” — ' + quote.author,
+      });
+      webpush.sendNotification({ endpoint: sub.endpoint, keys: sub.keys }, payload).catch(err => {
+        const code = err && err.statusCode;
+        if (code === 404 || code === 410) {
+          // Subscription is gone (browser unregistered it) — drop it so we stop retrying.
+          user.pushSubscriptions = user.pushSubscriptions.filter(s => s.endpoint !== sub.endpoint);
+          saveData(loadData_mergeRemoval(user, key));
+        } else {
+          console.error('Push send failed for', key, err && err.message);
+        }
+      });
+    }
+  }
+
+  if (changed) saveData(data);
+}
+
+// Re-reads the latest data from disk and applies just this one user's current
+// pushSubscriptions list, so a slow failed-send cleanup can't clobber writes
+// made by other requests in between.
+function loadData_mergeRemoval(user, key) {
+  const fresh = loadData();
+  if (fresh.users[key]) fresh.users[key].pushSubscriptions = user.pushSubscriptions;
+  return fresh;
+}
+
 server.listen(PORT, () => {
   console.log(`75 Hard tracker listening on http://localhost:${PORT}`);
   console.log(`Data file: ${DATA_FILE}`);
+  ensureVapidKeys();
+  setInterval(tickPushScheduler, 30 * 1000);
 });

@@ -4,6 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>75 Hard Tracker</title>
+<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<meta name="theme-color" content="#7c5cff">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="75 Hard">
 <style>
   /* Dark-only by design (like the reference — Frame.io doesn't ship a light
      in-app theme either), so this is a single deliberate palette rather than
@@ -233,6 +239,9 @@
   .cal-cell.done { background: var(--good); color: rgba(10,10,13,0.65); font-weight: 700; }
   .cal-cell.missed { background: var(--critical-wash); color: var(--critical); }
   .cal-cell.today { outline: 2px solid var(--accent); outline-offset: 1px; color: var(--accent-2); font-weight: 700; }
+  .cal-cell.today.done { color: #fff; }
+  .cal-cell.clickable { cursor: pointer; transition: transform .1s ease; }
+  .cal-cell.clickable:hover { transform: scale(1.12); }
   .cal-legend { display: flex; gap: 14px; margin-top: 12px; flex-wrap: wrap; }
   .cal-legend span { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--text-secondary); }
   .swatch { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
@@ -270,12 +279,52 @@
   .photo-slot .psub { font-size: 12px; color: var(--muted); }
   .photo-btns { display: flex; gap: 6px; flex-wrap: wrap; }
 
-  /* ---- my photo gallery ---- */
+  /* ---- tabs ---- */
+  .tabs { display: flex; gap: 4px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 12px; padding: 4px; margin-bottom: 18px; }
+  .tab-btn {
+    flex: 1; background: transparent; border: none; border-radius: 9px; padding: 9px 14px;
+    font-size: 13.5px; font-weight: 600; color: var(--text-secondary); cursor: pointer;
+  }
+  .tab-btn:hover { color: var(--text-primary); }
+  .tab-btn.active { background: var(--surface); color: var(--text-primary); box-shadow: 0 1px 3px rgba(0,0,0,0.4); }
+
+  /* ---- calendar photo modal ---- */
+  .photo-modal-backdrop {
+    position: fixed; inset: 0; background: rgba(5,5,8,0.78); backdrop-filter: blur(2px);
+    display: flex; align-items: center; justify-content: center; padding: 20px; z-index: 100;
+  }
+  .photo-modal-backdrop[hidden] { display: none; }
+  .photo-modal {
+    background: var(--surface); border: 1px solid var(--border-strong); border-radius: 16px;
+    max-width: 420px; width: 100%; padding: 16px; box-shadow: var(--shadow);
+  }
+  .photo-modal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; font-size: 13.5px; font-weight: 700; }
+  .photo-modal img { width: 100%; border-radius: 10px; display: block; max-height: 65vh; object-fit: contain; background: var(--surface-2); }
+  .photo-modal-empty {
+    padding: 40px 10px; text-align: center; color: var(--muted); font-size: 13px;
+    display: flex; flex-direction: column; align-items: center; gap: 10px;
+  }
+
+  /* ---- my photo gallery (Your Progress card preview pointer) ---- */
   .gallery-grid { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
   .gallery-grid a { display: block; }
   .gallery-grid img {
     width: 56px; height: 56px; border-radius: 8px; object-fit: cover; border: 1px solid var(--border);
   }
+
+  /* ---- progress tab: chronological photo timeline ---- */
+  .timeline-entry {
+    display: flex; gap: 14px; padding: 14px 0; border-bottom: 1px solid var(--gridline);
+  }
+  .timeline-entry:last-child { border-bottom: none; }
+  .timeline-entry img {
+    width: 96px; height: 96px; border-radius: 10px; object-fit: cover; border: 1px solid var(--border); flex: 0 0 auto; cursor: pointer;
+  }
+  .timeline-meta { display: flex; flex-direction: column; justify-content: center; gap: 3px; }
+  .timeline-meta .tday { font-size: 12px; font-weight: 700; color: var(--accent-2); text-transform: uppercase; letter-spacing: 0.04em; }
+  .timeline-meta .tdate { font-size: 14.5px; font-weight: 600; }
+  .timeline-meta .tweight { font-size: 12.5px; color: var(--text-secondary); }
+  .timeline-empty { text-align: center; padding: 40px 10px; color: var(--muted); font-size: 13.5px; }
 
   /* ---- friends ---- */
   .request-row {
@@ -307,6 +356,21 @@
     width: 46px; height: 46px; border-radius: 8px; object-fit: cover; border: 1px solid var(--border);
   }
   .friend-photos a:first-child img { width: 60px; height: 60px; }
+
+  /* ---- push notification opt-in ---- */
+  .notify-card {
+    display: flex; align-items: center; gap: 12px; padding: 13px 16px; margin-bottom: 16px;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+  }
+  .notify-card .nicon {
+    width: 34px; height: 34px; border-radius: 9px; background: var(--accent-wash); color: var(--accent-2);
+    display: flex; align-items: center; justify-content: center; flex: 0 0 auto;
+  }
+  .notify-card .ncopy { flex: 1; min-width: 0; }
+  .notify-card .ntitle { font-size: 13.5px; font-weight: 600; }
+  .notify-card .nsub { font-size: 12px; color: var(--text-secondary); margin-top: 1px; }
+  .notify-card .nsteps { font-size: 12px; color: var(--text-secondary); margin-top: 4px; line-height: 1.5; }
+  .notify-card .nsteps svg { vertical-align: -3px; }
 
   /* ---- motivational quotes ---- */
   .qotd {
@@ -368,6 +432,14 @@
       </div>
     </header>
 
+    <div class="tabs">
+      <button class="tab-btn active" id="tab-btn-today" data-tab="today">Today</button>
+      <button class="tab-btn" id="tab-btn-progress" data-tab="progress">Progress</button>
+    </div>
+
+    <div id="tab-today">
+    <div class="notify-card" id="notify-card" hidden></div>
+
     <div class="qotd" id="qotd"></div>
 
     <div class="card">
@@ -414,9 +486,7 @@
         <span><i class="swatch" style="background:var(--gridline)"></i> upcoming</span>
         <span><i class="swatch" style="background:var(--surface);outline:2px solid var(--accent)"></i> today</span>
       </div>
-
-      <h2 style="margin-top:20px">My photos</h2>
-      <div class="gallery-grid" id="photo-gallery"></div>
+      <p class="rules-note">Click any day to view its progress photo. See your full photo history in the <a href="#" id="cal-progress-link" style="color:var(--accent)">Progress tab</a>.</p>
 
       <div style="margin-top:16px">
         <button class="danger" id="reset-btn">Reset all my progress</button>
@@ -451,6 +521,26 @@
     </div>
 
     <footer class="foot">75 Hard Tracker — Instructional Design Central, LLC</footer>
+    </div>
+
+    <div id="tab-progress" hidden>
+      <div class="card">
+        <h2>Progress Photos</h2>
+        <p class="rules-note" style="margin-top:0">Every photo you've logged, in chronological order — Day 1 to today.</p>
+        <div id="progress-timeline"></div>
+      </div>
+      <footer class="foot">75 Hard Tracker — Instructional Design Central, LLC</footer>
+    </div>
+  </div>
+</div>
+
+<div class="photo-modal-backdrop" id="photo-modal-backdrop" hidden>
+  <div class="photo-modal">
+    <div class="photo-modal-head">
+      <span id="photo-modal-date"></span>
+      <button class="ghost small" id="photo-modal-close">Close</button>
+    </div>
+    <div id="photo-modal-body"></div>
   </div>
 </div>
 
@@ -474,6 +564,8 @@
     cameraLg: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h3l1.6-2.2h6.8L17 8h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13.2" r="3.2"/></svg>',
     image: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="4.5" width="17" height="15" rx="2.2"/><circle cx="9" cy="10" r="1.5"/><path d="M20 15.5l-5-4.8a1.4 1.4 0 0 0-2 0L4 19"/></svg>',
     check: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg>',
+    bell: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6 10a6 6 0 0 1 12 0c0 4 1.5 5.5 2 6H4c.5-.5 2-2 2-6z"/><path d="M10 20a2 2 0 0 0 4 0"/></svg>',
+    share: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V4M8 8l4-4 4 4"/><path d="M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"/></svg>',
   };
 
   // ---- motivational quotes ----
@@ -574,7 +666,6 @@
     photoRow: document.getElementById('photo-row'),
     photoCameraInput: document.getElementById('photo-camera-input'),
     photoLibraryInput: document.getElementById('photo-library-input'),
-    photoGallery: document.getElementById('photo-gallery'),
     todayBanner: document.getElementById('today-banner'),
     nutritionBody: document.getElementById('nutrition-body'),
     weightBody: document.getElementById('weight-body'),
@@ -596,6 +687,17 @@
     quoteStrip2: document.getElementById('quote-strip-2'),
     quoteStrip3: document.getElementById('quote-strip-3'),
     quoteStrip4: document.getElementById('quote-strip-4'),
+    tabBtnToday: document.getElementById('tab-btn-today'),
+    tabBtnProgress: document.getElementById('tab-btn-progress'),
+    tabToday: document.getElementById('tab-today'),
+    tabProgress: document.getElementById('tab-progress'),
+    calProgressLink: document.getElementById('cal-progress-link'),
+    progressTimeline: document.getElementById('progress-timeline'),
+    photoModalBackdrop: document.getElementById('photo-modal-backdrop'),
+    photoModalDate: document.getElementById('photo-modal-date'),
+    photoModalBody: document.getElementById('photo-modal-body'),
+    photoModalClose: document.getElementById('photo-modal-close'),
+    notifyCard: document.getElementById('notify-card'),
   };
 
   function saveCreds(c) {
@@ -644,6 +746,7 @@
   function showApp() {
     el.loginScreen.style.display = 'none';
     el.appScreen.style.display = 'block';
+    initNotifyCard();
   }
   function showLogin(errMsg) {
     el.appScreen.style.display = 'none';
@@ -670,7 +773,7 @@
     renderWeight();
     renderProgress();
     renderCalendar();
-    renderPhotoGallery();
+    renderProgressTimeline();
     renderGroup(data.group);
     renderFriends();
   }
@@ -800,21 +903,75 @@
 
   // ---- my photo gallery: every day you've uploaded a progress photo, newest first ----
 
-  function renderPhotoGallery() {
+  function dayNumberFor(date) {
+    return Math.round((new Date(date + 'T00:00:00Z') - new Date(me.startDate + 'T00:00:00Z')) / 86400000) + 1;
+  }
+
+  // The Progress tab: every photo you've logged, oldest first, so it reads as
+  // an actual before-to-now progression rather than a most-recent-first feed.
+  function renderProgressTimeline() {
     var days = me.days || {};
     var dates = Object.keys(days)
       .filter(function (d) { return days[d] && days[d].photo && d <= TODAY; })
-      .sort()
-      .reverse();
+      .sort();
     if (dates.length === 0) {
-      el.photoGallery.innerHTML = '<p class="rules-note" style="margin:0">No photos yet — upload one from the Today card.</p>';
+      el.progressTimeline.innerHTML = '<p class="timeline-empty">No progress photos yet — upload one from the Today tab and it\'ll show up here.</p>';
       return;
     }
-    el.photoGallery.innerHTML = dates.map(function (d) {
+    el.progressTimeline.innerHTML = dates.map(function (d) {
       var url = photoUrl(creds.key, d);
-      return '<a href="' + url + '" target="_blank" rel="noopener" title="' + d + '"><img src="' + url + '" loading="lazy" alt="Progress photo — ' + d + '"></a>';
+      var weight = days[d].weight;
+      return '<div class="timeline-entry">' +
+        '<img src="' + url + '" loading="lazy" alt="Progress photo — ' + d + '" data-date="' + d + '">' +
+        '<div class="timeline-meta">' +
+          '<div class="tday">Day ' + dayNumberFor(d) + '</div>' +
+          '<div class="tdate">' + fmtDate(d) + '</div>' +
+          (weight != null && me.weightGoal ? '<div class="tweight">' + weight + ' ' + me.weightGoal.unit + '</div>' : '') +
+        '</div></div>';
     }).join('');
+
+    Array.prototype.forEach.call(el.progressTimeline.querySelectorAll('img'), function (img) {
+      img.addEventListener('click', function () { openPhotoModal(img.getAttribute('data-date')); });
+    });
   }
+
+  // ---- tabs ----
+
+  function switchTab(tab) {
+    var isToday = tab === 'today';
+    el.tabToday.hidden = !isToday;
+    el.tabProgress.hidden = isToday;
+    el.tabBtnToday.classList.toggle('active', isToday);
+    el.tabBtnProgress.classList.toggle('active', !isToday);
+    window.scrollTo(0, 0);
+  }
+  el.tabBtnToday.addEventListener('click', function () { switchTab('today'); });
+  el.tabBtnProgress.addEventListener('click', function () { switchTab('progress'); });
+  el.calProgressLink.addEventListener('click', function (e) { e.preventDefault(); switchTab('progress'); });
+
+  // ---- calendar day photo modal ----
+
+  function openPhotoModal(date) {
+    var rec = (me.days && me.days[date]) || {};
+    el.photoModalDate.textContent = fmtDate(date);
+    if (rec.photo) {
+      el.photoModalBody.innerHTML = '<img src="' + photoUrl(creds.key, date) + '" alt="Progress photo — ' + date + '">';
+    } else {
+      el.photoModalBody.innerHTML = '<div class="photo-modal-empty">' + ICONS.cameraLg + '<span>No photo logged for this day.</span></div>';
+    }
+    el.photoModalBackdrop.hidden = false;
+  }
+  function closePhotoModal() {
+    el.photoModalBackdrop.hidden = true;
+    el.photoModalBody.innerHTML = '';
+  }
+  el.photoModalClose.addEventListener('click', closePhotoModal);
+  el.photoModalBackdrop.addEventListener('click', function (e) {
+    if (e.target === el.photoModalBackdrop) closePhotoModal();
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && !el.photoModalBackdrop.hidden) closePhotoModal();
+  });
 
   // ---- nutrition ----
 
@@ -1098,6 +1255,10 @@
       cell.className = cls;
       cell.title = date;
       cell.textContent = isToday ? i : '';
+      if (date <= TODAY) {
+        cell.classList.add('clickable');
+        (function (d) { cell.addEventListener('click', function () { openPhotoModal(d); }); })(date);
+      }
       el.calGrid.appendChild(cell);
     }
   }
@@ -1236,6 +1397,7 @@
     clearCreds();
     creds = null;
     lastTodayComplete = null;
+    notifyCardInitDone = false;
     el.nameInput.value = '';
     el.pinInput.value = '';
     showLogin();
@@ -1247,6 +1409,111 @@
       .then(function () { return loadState(); })
       .catch(function (e) { alert(e.message); });
   });
+
+  // ---- push notifications (daily 9am reminder) ----
+
+  var notifyCardInitDone = false;
+  var pushSupported = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+  var isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+  var isStandalone = window.navigator.standalone === true ||
+    (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
+
+  function urlBase64ToUint8Array(base64) {
+    var padding = '='.repeat((4 - (base64.length % 4)) % 4);
+    var b64 = (base64 + padding).replace(/-/g, '+').replace(/_/g, '/');
+    var raw = atob(b64);
+    var out = new Uint8Array(raw.length);
+    for (var i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+    return out;
+  }
+
+  function renderNotifyCard(state) {
+    el.notifyCard.hidden = false;
+    if (state === 'ios-install') {
+      el.notifyCard.innerHTML =
+        '<div class="nicon">' + ICONS.share + '</div>' +
+        '<div class="ncopy"><div class="ntitle">Get your 9am reminder</div>' +
+        '<div class="nsub">Add 75 Hard to your Home Screen to enable notifications on iPhone.</div>' +
+        '<div class="nsteps">Tap ' + ICONS.share + ' Share, then "Add to Home Screen".</div></div>';
+    } else if (state === 'blocked') {
+      el.notifyCard.innerHTML =
+        '<div class="nicon">' + ICONS.bell + '</div>' +
+        '<div class="ncopy"><div class="ntitle">Notifications are blocked</div>' +
+        '<div class="nsub">Allow notifications for this site in your browser settings to get the 9am reminder.</div></div>';
+    } else if (state === 'on') {
+      el.notifyCard.innerHTML =
+        '<div class="nicon">' + ICONS.bell + '</div>' +
+        '<div class="ncopy"><div class="ntitle">9am reminder is on</div>' +
+        '<div class="nsub">You\'ll get a push notification each morning, your local time.</div></div>' +
+        '<button class="ghost small" id="notify-off-btn">Turn off</button>';
+      document.getElementById('notify-off-btn').addEventListener('click', disablePush);
+    } else {
+      el.notifyCard.innerHTML =
+        '<div class="nicon">' + ICONS.bell + '</div>' +
+        '<div class="ncopy"><div class="ntitle">Daily 9am reminder</div>' +
+        '<div class="nsub">Get a push notification each morning with the quote of the day.</div></div>' +
+        '<button class="primary small" id="notify-on-btn" style="width:auto">Enable</button>';
+      document.getElementById('notify-on-btn').addEventListener('click', enablePush);
+    }
+  }
+
+  function enablePush() {
+    Notification.requestPermission().then(function (perm) {
+      if (perm !== 'granted') { renderNotifyCard('blocked'); return; }
+      navigator.serviceWorker.register('/sw.js').then(function (reg) {
+        return api('GET', '/api/push/vapid-key').then(function (d) {
+          return reg.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: urlBase64ToUint8Array(d.publicKey),
+          });
+        });
+      }).then(function (sub) {
+        return postSubscription(sub);
+      }).then(function () {
+        renderNotifyCard('on');
+      }).catch(function (e) {
+        alert('Could not enable notifications: ' + e.message);
+      });
+    });
+  }
+
+  function postSubscription(sub) {
+    var timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    return api('POST', '/api/push/subscribe', {
+      name: creds.name, pin: creds.pin, subscription: sub.toJSON(), timezone: timezone,
+    });
+  }
+
+  function disablePush() {
+    navigator.serviceWorker.ready.then(function (reg) {
+      return reg.pushManager.getSubscription();
+    }).then(function (sub) {
+      if (!sub) { renderNotifyCard('off'); return; }
+      var endpoint = sub.endpoint;
+      return sub.unsubscribe().then(function () {
+        return api('POST', '/api/push/unsubscribe', { name: creds.name, pin: creds.pin, endpoint: endpoint });
+      }).then(function () { renderNotifyCard('off'); });
+    }).catch(function (e) { alert(e.message); });
+  }
+
+  function initNotifyCard() {
+    if (notifyCardInitDone || !pushSupported) return;
+    notifyCardInitDone = true;
+
+    if (isIOS && !isStandalone) { renderNotifyCard('ios-install'); return; }
+    if (Notification.permission === 'denied') { renderNotifyCard('blocked'); return; }
+
+    navigator.serviceWorker.register('/sw.js').then(function (reg) {
+      return reg.pushManager.getSubscription();
+    }).then(function (sub) {
+      if (sub) {
+        // A subscription already exists on this device/browser — claim it for
+        // whoever is currently logged in, so a shared device stays correct.
+        return postSubscription(sub).then(function () { renderNotifyCard('on'); });
+      }
+      renderNotifyCard('off');
+    }).catch(function () { /* service worker unsupported/blocked in this context — leave hidden */ });
+  }
 
   // Try auto-login from stored creds.
   var stored = loadCreds();
