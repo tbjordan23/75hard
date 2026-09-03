@@ -39,11 +39,24 @@ Standard 75 Hard resets you to Day 1 on any missed day. **This tracker does not 
 
 So: `targetDays = 75 + 2 × missedDays`, and progress (`completedDays`) never zeroes out — it just needs to reach a growing target. This logic lives in `computeStatus()` in `server.js`. Only *finalized* past days (before today) count as "missed"; today is never judged incomplete while still in progress.
 
+## Day boundary: local midnight, not UTC
+
+"Today" is computed per-user at **local midnight**, not server/UTC midnight — a UTC-based boundary flips the date up to several hours off from what's actually on a user's clock (mid-evening for anyone west of UTC), which visibly undercounted `dayNumber` the day after someone started. The client detects its own IANA zone once (`LOCAL_TZ` in `index.html`, via `Intl.DateTimeFormat().resolvedOptions().timeZone` — the same trick already used for push scheduling) and sends it as `tz` on every request (`api()` auto-injects it into POST bodies; `loadState()` appends it to the `/api/state` query string). `authenticate()` in `server.js` persists it to `user.timezone`, kept fresh on every request rather than fixed at signup. `todayStr(timeZone)` computes the date via `localDateKey()` (an `Intl`/`toLocaleDateString('en-CA', …)` call) in that zone, falling back to UTC only when no timezone is known yet (pre-feature accounts that haven't made a request since). Every handler that needs "today" — state, toggle, goals, food, weight, photo, restart, and `startDate` at signup — reads `user.timezone`, not the server clock.
+
 ## Nutrition instead of a blanket "diet" checkbox
 
 People in the same group are cutting, bulking, or maintaining, so "follow a diet" isn't a single checkbox — each user sets their own daily calorie + protein target (`POST /api/goals`), logs food throughout the day, and a day's nutrition is "met" when protein clears the target and calories land within ±10%/±100 (whichever is larger) of it, in either direction. See `nutritionStatus()`.
 
 Food entries are tagged with a `meal` (`breakfast`/`lunch`/`dinner`, see `MEALS` in `server.js`) — `POST /api/food/add` requires and validates it. The UI (`renderNutritionTracker()`) groups entries into three sections with per-meal subtotals; daily totals/targets stay aggregated across all three (`foodTotals()` sums the whole day regardless of meal — that part is unchanged).
+
+### AI Scan: meal-photo calorie/protein estimation
+
+Each meal section has an "AI Scan" button (next to the manual Add row) that photographs/picks a meal photo and asks Claude to estimate its calories and protein, then **prefills** that meal's label/calories/protein inputs — it does not log the entry itself. The user still reviews (and can edit) the estimate and taps the existing "Add" button, same validation path as a manual entry; this is deliberate, since a vision estimate off a photo is a starting guess, not a committed number.
+
+- `POST /api/food/ai-scan` (`{ name, pin, tz, dataUrl }`) reuses `parseImageDataUrl()`/`MAX_PHOTO_BYTES` from the progress-photo upload path, then calls `estimateMealFromImage()` and returns `{ estimate: { label, calories, protein, confidence } }`. It never touches `user.days` — no `date`/`meal` needed, unlike every other food/photo endpoint.
+- **No new dependency**: `estimateMealFromImage()` calls `https://api.anthropic.com/v1/messages` directly over Node's built-in `fetch` (Node 18+) rather than adding `@anthropic-ai/sdk` — one JSON POST doesn't clear the bar that justified adding `web-push` (RFC 8291/8292 crypto would've been painful to hand-roll; a single REST call isn't). Requires the **`ANTHROPIC_API_KEY`** env var (set it on the Railway service); `ANTHROPIC_MODEL` optionally overrides the default model. Unset key → the endpoint reports itself unconfigured (501) rather than failing obscurely.
+- **Forced tool call, not prose parsing**: the request sends a single `log_meal_estimate` tool with `tool_choice` forcing its use, so the response is structured `{label, calories, protein, confidence}` straight off `content[].tool_use.input` — no scraping a JSON blob out of free text. The prompt explicitly tells the model to give a best-effort numeric estimate and never refuse or ask a follow-up, since a roughly-right guess the user can correct beats a dead end.
+- Sends the photo bytes to Anthropic's API for processing — same privacy shape as any cloud vision call; nothing else about photo storage/access changes (the scanned photo itself is never saved, only the resulting label/numbers, and only once the user taps Add).
 
 ## Goal mode flexes the workout requirement
 

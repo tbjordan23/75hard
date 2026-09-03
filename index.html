@@ -456,6 +456,7 @@
     <div class="card" id="nutrition-card">
       <h2>Nutrition</h2>
       <div id="nutrition-body"></div>
+      <input type="file" id="ai-scan-input" accept="image/*" style="display:none">
     </div>
 
     <div class="card" id="weight-card">
@@ -546,6 +547,13 @@
 
 <script>
 (function () {
+  // The device's own IANA zone, e.g. "America/Denver" — sent with every
+  // request so the server can compute "today" at local midnight instead of
+  // UTC midnight (same trick already used for push-notification scheduling).
+  var LOCAL_TZ = (function () {
+    try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ''; }
+    catch (e) { return ''; }
+  })();
   var TASKS = [];
   var MEALS = ['breakfast', 'lunch', 'dinner'];
   var MEAL_LABELS = { breakfast: 'Breakfast', lunch: 'Lunch', dinner: 'Dinner' };
@@ -566,6 +574,7 @@
     check: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg>',
     bell: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6 10a6 6 0 0 1 12 0c0 4 1.5 5.5 2 6H4c.5-.5 2-2 2-6z"/><path d="M10 20a2 2 0 0 0 4 0"/></svg>',
     share: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V4M8 8l4-4 4 4"/><path d="M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"/></svg>',
+    sparkle: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4l1.8 4.9L19 10.7l-5.2 1.8L12 17.4l-1.8-4.9L5 10.7l5.2-1.8L12 4z"/><path d="M19 3.5v3M17.5 5h3"/></svg>',
   };
 
   // ---- motivational quotes ----
@@ -668,6 +677,7 @@
     photoLibraryInput: document.getElementById('photo-library-input'),
     todayBanner: document.getElementById('today-banner'),
     nutritionBody: document.getElementById('nutrition-body'),
+    aiScanInput: document.getElementById('ai-scan-input'),
     weightBody: document.getElementById('weight-body'),
     completedDays: document.getElementById('completed-days'),
     targetDaysLabel: document.getElementById('target-days-label'),
@@ -711,10 +721,13 @@
   }
 
   function api(method, path, body) {
+    // Every authenticated POST carries the device's current local timezone so
+    // the server's day-boundary tracks the user's clock, not the server's.
+    var payload = body ? Object.assign({ tz: LOCAL_TZ }, body) : body;
     return fetch(path, {
       method: method,
-      headers: body ? { 'Content-Type': 'application/json' } : undefined,
-      body: body ? JSON.stringify(body) : undefined,
+      headers: payload ? { 'Content-Type': 'application/json' } : undefined,
+      body: payload ? JSON.stringify(payload) : undefined,
     }).then(function (r) {
       return r.json().then(function (data) {
         if (!r.ok) throw new Error(data.error || 'Request failed');
@@ -732,7 +745,8 @@
   }
 
   function loadState() {
-    var q = '/api/state?name=' + encodeURIComponent(creds.name) + '&pin=' + encodeURIComponent(creds.pin);
+    var q = '/api/state?name=' + encodeURIComponent(creds.name) + '&pin=' + encodeURIComponent(creds.pin) +
+      '&tz=' + encodeURIComponent(LOCAL_TZ);
     return api('GET', q).then(function (data) {
       TASKS = data.tasks;
       MEALS = data.meals || MEALS;
@@ -1070,8 +1084,10 @@
         '<input type="text" class="food-label" data-meal="' + meal + '" placeholder="e.g. Chicken &amp; rice">' +
         '<input type="number" class="food-calories" data-meal="' + meal + '" placeholder="cal" min="0">' +
         '<input type="number" class="food-protein" data-meal="' + meal + '" placeholder="protein g" min="0">' +
+        '<button class="ghost small ai-scan-btn" data-meal="' + meal + '">' + ICONS.sparkle + ' AI Scan</button>' +
         '<button class="food-add-btn" data-meal="' + meal + '">Add</button>' +
         '</div>';
+      html += '<div class="rules-note ai-scan-status" data-meal="' + meal + '" style="margin:4px 0 0"></div>';
       html += '</div>';
     });
 
@@ -1092,16 +1108,10 @@
     Array.prototype.forEach.call(el.nutritionBody.querySelectorAll('.food-add-btn'), function (btn) {
       btn.addEventListener('click', function () {
         var meal = btn.getAttribute('data-meal');
-        var scope = el.nutritionBody.querySelectorAll('[data-meal="' + meal + '"]');
-        var labelInput, calInput, proInput;
-        Array.prototype.forEach.call(scope, function (node) {
-          if (node.classList.contains('food-label')) labelInput = node;
-          if (node.classList.contains('food-calories')) calInput = node;
-          if (node.classList.contains('food-protein')) proInput = node;
-        });
-        var label = labelInput.value.trim();
-        var cal = parseFloat(calInput.value);
-        var pro = parseFloat(proInput.value);
+        var fields = mealFields(meal);
+        var label = fields.labelInput.value.trim();
+        var cal = parseFloat(fields.calInput.value);
+        var pro = parseFloat(fields.proInput.value);
         if (!label) { alert('Enter a food description.'); return; }
         if (!(cal >= 0) || !(pro >= 0)) { alert('Enter calories and protein.'); return; }
         api('POST', '/api/food/add', { name: creds.name, pin: creds.pin, date: TODAY, meal: meal, label: label, calories: cal, protein: pro })
@@ -1109,7 +1119,68 @@
           .catch(function (e) { alert(e.message); });
       });
     });
+    Array.prototype.forEach.call(el.nutritionBody.querySelectorAll('.ai-scan-btn'), function (btn) {
+      btn.addEventListener('click', function () {
+        aiScanMeal = btn.getAttribute('data-meal');
+        el.aiScanInput.click();
+      });
+    });
   }
+
+  // The label/calories/protein inputs for one meal's add-row, shared by the
+  // manual "Add" button and the AI Scan prefill.
+  function mealFields(meal) {
+    var scope = el.nutritionBody.querySelectorAll('[data-meal="' + meal + '"]');
+    var fields = {};
+    Array.prototype.forEach.call(scope, function (node) {
+      if (node.classList.contains('food-label')) fields.labelInput = node;
+      if (node.classList.contains('food-calories')) fields.calInput = node;
+      if (node.classList.contains('food-protein')) fields.proInput = node;
+      if (node.classList.contains('ai-scan-status')) fields.statusEl = node;
+      if (node.classList.contains('ai-scan-btn')) fields.scanBtn = node;
+    });
+    return fields;
+  }
+
+  // AI Scan: photograph (or pick) a meal photo, send it to the server for a
+  // Claude vision estimate, and prefill that meal's add-row with the result —
+  // the user still reviews/edits and taps "Add" themselves, same as a manual
+  // entry, since the estimate is a best guess, not a committed log entry.
+  var aiScanMeal = null;
+  function handleAiScanFile(input) {
+    var file = input.files && input.files[0];
+    var meal = aiScanMeal;
+    input.value = '';
+    aiScanMeal = null;
+    if (!file || !meal) return;
+    if (file.size > 6 * 1024 * 1024) { alert('Image too large (max 6MB).'); return; }
+
+    var fields = mealFields(meal);
+    if (fields.scanBtn) fields.scanBtn.disabled = true;
+    if (fields.statusEl) fields.statusEl.textContent = 'Scanning meal photo…';
+
+    var reader = new FileReader();
+    reader.onload = function () {
+      if (!creds) return; // logged out while the file was still being read
+      api('POST', '/api/food/ai-scan', { name: creds.name, pin: creds.pin, dataUrl: reader.result })
+        .then(function (data) {
+          if (fields.scanBtn) fields.scanBtn.disabled = false;
+          if (fields.labelInput) fields.labelInput.value = data.estimate.label;
+          if (fields.calInput) fields.calInput.value = data.estimate.calories;
+          if (fields.proInput) fields.proInput.value = data.estimate.protein;
+          if (fields.statusEl) {
+            fields.statusEl.textContent = 'AI estimate (' + data.estimate.confidence + ' confidence) — review, then tap Add.';
+          }
+        })
+        .catch(function (e) {
+          if (fields.scanBtn) fields.scanBtn.disabled = false;
+          if (fields.statusEl) fields.statusEl.textContent = '';
+          alert(e.message);
+        });
+    };
+    reader.readAsDataURL(file);
+  }
+  el.aiScanInput.addEventListener('change', function () { handleAiScanFile(el.aiScanInput); });
 
   // ---- body weight ----
 

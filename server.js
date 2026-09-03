@@ -18,6 +18,13 @@ const PHOTOS_DIR = path.join(DATA_DIR, 'photos');
 const MAX_PHOTO_BYTES = 6 * 1024 * 1024;
 const PHOTO_MIME = { jpg: 'image/jpeg', png: 'image/png', webp: 'image/webp', gif: 'image/gif' };
 const VAPID_CONTACT = process.env.VAPID_CONTACT || 'mailto:tbjordan@gmail.com';
+// AI Scan (meal-photo calorie/protein estimation) calls the Claude API
+// directly over fetch (built into Node 18+) rather than pulling in
+// @anthropic-ai/sdk — one JSON POST doesn't earn a new dependency, unlike
+// web-push's fiddly encryption/VAPID protocol. Requires ANTHROPIC_API_KEY;
+// the feature cleanly reports itself unconfigured if it's unset.
+const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || '';
+const ANTHROPIC_MODEL = process.env.ANTHROPIC_MODEL || 'claude-sonnet-5';
 const STATIC_FILES = {
   '/manifest.json': { file: path.join(__dirname, 'manifest.json'), type: 'application/manifest+json' },
   '/sw.js': { file: path.join(__dirname, 'sw.js'), type: 'application/javascript' },
@@ -177,9 +184,33 @@ function ensureVapidKeys() {
   return data.vapid;
 }
 
-// ---------- date helpers (all in UTC, YYYY-MM-DD strings) ----------
+// ---------- date helpers (YYYY-MM-DD strings) ----------
+//
+// "Today" is local-midnight-based, not UTC-based: a day boundary at UTC
+// midnight would flip the date up to several hours off from what a user
+// actually sees on their clock (e.g. it rolls over mid-evening for anyone
+// west of UTC), which visibly undercounts a day-number the day after
+// someone starts. Each user's IANA timezone (detected client-side via
+// `Intl.DateTimeFormat().resolvedOptions().timeZone`, same trick already
+// used for push-notification scheduling) is captured on login/requests and
+// stored as user.timezone; todayStr() computes "today" in that zone,
+// falling back to UTC only when no timezone is known yet (e.g. a request
+// that predates this feature, or an invalid zone).
 
-function todayStr() {
+function isValidTimezone(tz) {
+  if (!tz || typeof tz !== 'string') return false;
+  try { Intl.DateTimeFormat(undefined, { timeZone: tz }); return true; }
+  catch (e) { return false; }
+}
+
+function localDateKey(timeZone) {
+  return new Date().toLocaleDateString('en-CA', { timeZone }); // en-CA -> YYYY-MM-DD
+}
+
+function todayStr(timeZone) {
+  if (timeZone) {
+    try { return localDateKey(timeZone); } catch (e) { /* fall through */ }
+  }
   return new Date().toISOString().slice(0, 10);
 }
 
@@ -263,6 +294,93 @@ function nutritionStatus(user, rec) {
     calorieTolerance: Math.round(tolerance),
     proteinOk,
     calorieOk,
+  };
+}
+
+// AI Scan: asks Claude to estimate a meal photo's calories/protein via a
+// forced tool call, so the response is structured JSON rather than prose to
+// parse. Best-effort by design — the prompt tells it never to refuse or ask
+// a follow-up, since a rough estimate the user can correct beats a refusal.
+async function estimateMealFromImage(mediaType, base64Data) {
+  if (!ANTHROPIC_API_KEY) {
+    const err = new Error('AI scan is not configured on this server (missing ANTHROPIC_API_KEY).');
+    err.code = 'NOT_CONFIGURED';
+    throw err;
+  }
+
+  const tool = {
+    name: 'log_meal_estimate',
+    description: 'Record a best-effort nutrition estimate for the meal shown in the photo.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        label: { type: 'string', description: 'Short description of the meal, e.g. "Grilled chicken, rice, broccoli".' },
+        calories: { type: 'integer', description: 'Estimated total calories for everything shown.' },
+        protein: { type: 'integer', description: 'Estimated total protein in grams for everything shown.' },
+        confidence: { type: 'string', enum: ['low', 'medium', 'high'], description: 'How confident this estimate is.' },
+      },
+      required: ['label', 'calories', 'protein', 'confidence'],
+    },
+  };
+
+  let res;
+  try {
+    res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: ANTHROPIC_MODEL,
+        max_tokens: 512,
+        tools: [tool],
+        tool_choice: { type: 'tool', name: 'log_meal_estimate' },
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64Data } },
+            {
+              type: 'text',
+              text: 'Estimate calories and protein for the meal in this photo, for a personal fitness ' +
+                "tracker. Give your best numeric estimate even if you're not fully certain — never refuse " +
+                'or ask a follow-up question. If multiple items are visible, estimate the total for everything shown.',
+            },
+          ],
+        }],
+      }),
+    });
+  } catch (e) {
+    const err = new Error('Could not reach the AI scan service.');
+    err.code = 'API_ERROR';
+    throw err;
+  }
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    console.error('Anthropic API error', res.status, text.slice(0, 500));
+    const err = new Error('AI scan request failed (' + res.status + ').');
+    err.code = 'API_ERROR';
+    throw err;
+  }
+
+  const json = await res.json();
+  const toolUse = (json.content || []).find(b => b.type === 'tool_use' && b.name === 'log_meal_estimate');
+  const input = toolUse && toolUse.input;
+  const calories = input && Math.round(Number(input.calories));
+  const protein = input && Math.round(Number(input.protein));
+  if (!input || !Number.isFinite(calories) || !Number.isFinite(protein)) {
+    const err = new Error('AI scan could not produce an estimate for that photo.');
+    err.code = 'NO_ESTIMATE';
+    throw err;
+  }
+
+  return {
+    label: String(input.label || 'Meal').trim().slice(0, 120) || 'Meal',
+    calories: Math.min(10000, Math.max(0, calories)),
+    protein: Math.min(1000, Math.max(0, protein)),
+    confidence: ['low', 'medium', 'high'].includes(input.confidence) ? input.confidence : 'medium',
   };
 }
 
@@ -394,7 +512,7 @@ function normalizeName(name) {
   return String(name || '').trim().toLowerCase().replace(/\s+/g, ' ');
 }
 
-function authenticate(data, name, pin) {
+function authenticate(data, name, pin, tz) {
   const key = normalizeName(name);
   const user = data.users[key];
   if (!user || hashPin(String(pin || ''), user.salt) !== user.pinHash) return null;
@@ -406,7 +524,16 @@ function authenticate(data, name, pin) {
   user.outgoing = user.outgoing || [];
   user.weightGoal = user.weightGoal || null;
   user.pushSubscriptions = user.pushSubscriptions || [];
-  return { key, user };
+  user.timezone = user.timezone || null;
+  // Every authenticated request from the client carries its device's current
+  // IANA zone (see LOCAL_TZ in index.html) — keep it fresh so "today" tracks
+  // wherever the user actually is, not just whatever it was at signup.
+  let tzChanged = false;
+  if (tz && isValidTimezone(tz) && tz !== user.timezone) {
+    user.timezone = tz;
+    tzChanged = true;
+  }
+  return { key, user, tzChanged };
 }
 
 function resolveUser(data, name) {
@@ -459,7 +586,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && url.pathname === '/api/push/subscribe') {
       const body = await readBody(req);
       const data = loadData();
-      const auth = authenticate(data, body.name, body.pin);
+      const auth = authenticate(data, body.name, body.pin, body.tz);
       if (!auth) return sendJson(res, 401, { error: 'Not authenticated.' });
       const { user } = auth;
 
@@ -468,8 +595,7 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 400, { error: 'Invalid push subscription.' });
       }
       const timezone = String(body.timezone || '');
-      try { Intl.DateTimeFormat(undefined, { timeZone: timezone }); }
-      catch (e) { return sendJson(res, 400, { error: 'Invalid timezone.' }); }
+      if (!isValidTimezone(timezone)) return sendJson(res, 400, { error: 'Invalid timezone.' });
 
       const existing = user.pushSubscriptions.find(s => s.endpoint === sub.endpoint);
       if (existing) {
@@ -492,7 +618,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && url.pathname === '/api/push/unsubscribe') {
       const body = await readBody(req);
       const data = loadData();
-      const auth = authenticate(data, body.name, body.pin);
+      const auth = authenticate(data, body.name, body.pin, body.tz);
       if (!auth) return sendJson(res, 401, { error: 'Not authenticated.' });
       const { user } = auth;
 
@@ -512,13 +638,14 @@ const server = http.createServer(async (req, res) => {
 
       const data = loadData();
       let user = data.users[key];
+      const tz = isValidTimezone(body.tz) ? body.tz : null;
       if (!user) {
         const salt = makeSalt();
         user = {
           displayName: String(body.name).trim(),
           salt,
           pinHash: hashPin(pin, salt),
-          startDate: todayStr(),
+          startDate: todayStr(tz),
           days: {},
           goals: null,
           friends: [],
@@ -526,6 +653,7 @@ const server = http.createServer(async (req, res) => {
           outgoing: [],
           weightGoal: null,
           pushSubscriptions: [],
+          timezone: tz,
         };
         data.users[key] = user;
         saveData(data);
@@ -533,6 +661,7 @@ const server = http.createServer(async (req, res) => {
         if (hashPin(pin, user.salt) !== user.pinHash) {
           return sendJson(res, 401, { error: 'Wrong PIN for that name.' });
         }
+        if (tz && tz !== user.timezone) { user.timezone = tz; saveData(data); }
       }
       return sendJson(res, 200, { ok: true, key, name: user.displayName });
     }
@@ -540,11 +669,12 @@ const server = http.createServer(async (req, res) => {
     // Full state for the logged-in user: their task history + everyone's group summary.
     if (req.method === 'GET' && url.pathname === '/api/state') {
       const data = loadData();
-      const auth = authenticate(data, url.searchParams.get('name'), url.searchParams.get('pin'));
+      const auth = authenticate(data, url.searchParams.get('name'), url.searchParams.get('pin'), url.searchParams.get('tz'));
       if (!auth) return sendJson(res, 401, { error: 'Not authenticated.' });
       const { user } = auth;
+      if (auth.tzChanged) saveData(data);
 
-      const today = todayStr();
+      const today = todayStr(user.timezone);
       const status = computeStatus(user, today);
       const group = Object.entries(data.users)
         .map(([k, u]) => publicUser(k, u, today))
@@ -585,7 +715,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && url.pathname === '/api/toggle') {
       const body = await readBody(req);
       const data = loadData();
-      const auth = authenticate(data, body.name, body.pin);
+      const auth = authenticate(data, body.name, body.pin, body.tz);
       if (!auth) return sendJson(res, 401, { error: 'Not authenticated.' });
       const { user } = auth;
 
@@ -595,7 +725,7 @@ const server = http.createServer(async (req, res) => {
       if (task === 'photo') return sendJson(res, 400, { error: 'Upload a photo instead of toggling — see POST /api/photo.' });
       if (!taskKeys.includes(task)) return sendJson(res, 400, { error: 'Unknown task.' });
       if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return sendJson(res, 400, { error: 'Bad date.' });
-      const today = todayStr();
+      const today = todayStr(user.timezone);
       if (date > today) return sendJson(res, 400, { error: 'Cannot log a future day.' });
       if (date < user.startDate) return sendJson(res, 400, { error: 'Before your start date.' });
 
@@ -611,7 +741,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && url.pathname === '/api/goals') {
       const body = await readBody(req);
       const data = loadData();
-      const auth = authenticate(data, body.name, body.pin);
+      const auth = authenticate(data, body.name, body.pin, body.tz);
       if (!auth) return sendJson(res, 401, { error: 'Not authenticated.' });
       const { user } = auth;
 
@@ -628,7 +758,7 @@ const server = http.createServer(async (req, res) => {
       user.goals = { mode, calories: Math.round(calories), protein: Math.round(protein) };
       saveData(data);
 
-      const today = todayStr();
+      const today = todayStr(user.timezone);
       return sendJson(res, 200, { ok: true, goals: user.goals, tasks: tasksForUser(user), status: computeStatus(user, today) });
     }
 
@@ -639,7 +769,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && url.pathname === '/api/weight/goal') {
       const body = await readBody(req);
       const data = loadData();
-      const auth = authenticate(data, body.name, body.pin);
+      const auth = authenticate(data, body.name, body.pin, body.tz);
       if (!auth) return sendJson(res, 401, { error: 'Not authenticated.' });
       const { user } = auth;
 
@@ -666,7 +796,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && url.pathname === '/api/weight/log') {
       const body = await readBody(req);
       const data = loadData();
-      const auth = authenticate(data, body.name, body.pin);
+      const auth = authenticate(data, body.name, body.pin, body.tz);
       if (!auth) return sendJson(res, 401, { error: 'Not authenticated.' });
       const { user } = auth;
 
@@ -674,7 +804,7 @@ const server = http.createServer(async (req, res) => {
       const date = String(body.date || '');
       const weight = Number(body.weight);
       if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return sendJson(res, 400, { error: 'Bad date.' });
-      const today = todayStr();
+      const today = todayStr(user.timezone);
       if (date > today) return sendJson(res, 400, { error: 'Cannot log a future day.' });
       if (date < user.startDate) return sendJson(res, 400, { error: 'Before your start date.' });
       if (!validWeight(user.weightGoal.unit, weight)) return sendJson(res, 400, { error: 'Enter a valid weight.' });
@@ -689,7 +819,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && url.pathname === '/api/weight/log/remove') {
       const body = await readBody(req);
       const data = loadData();
-      const auth = authenticate(data, body.name, body.pin);
+      const auth = authenticate(data, body.name, body.pin, body.tz);
       if (!auth) return sendJson(res, 401, { error: 'Not authenticated.' });
       const { user } = auth;
 
@@ -699,11 +829,36 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true, day: user.days[date] || {} });
     }
 
+    // AI Scan: send a meal photo to Claude for a best-effort calorie/protein
+    // estimate. Returns the estimate to the client to review/edit — it never
+    // writes to the food log itself, that still goes through POST
+    // /api/food/add once the user taps "Add" on the (possibly-edited) result.
+    if (req.method === 'POST' && url.pathname === '/api/food/ai-scan') {
+      const body = await readBody(req, MAX_PHOTO_BYTES + 100000);
+      const data = loadData();
+      const auth = authenticate(data, body.name, body.pin, body.tz);
+      if (!auth) return sendJson(res, 401, { error: 'Not authenticated.' });
+      if (auth.tzChanged) saveData(data);
+
+      const parsed = parseImageDataUrl(body.dataUrl);
+      if (!parsed) return sendJson(res, 400, { error: 'Unsupported image format (use JPG, PNG, WEBP, or GIF).' });
+      if (parsed.buffer.length > MAX_PHOTO_BYTES) return sendJson(res, 400, { error: 'Image too large (max 6MB).' });
+
+      try {
+        const estimate = await estimateMealFromImage(PHOTO_MIME[parsed.ext], parsed.buffer.toString('base64'));
+        return sendJson(res, 200, { ok: true, estimate });
+      } catch (err) {
+        console.error('AI scan failed:', err.message);
+        const code = err.code === 'NOT_CONFIGURED' ? 501 : 502;
+        return sendJson(res, code, { error: err.message || 'AI scan failed — enter the meal manually instead.' });
+      }
+    }
+
     // Add one food log entry to a given date.
     if (req.method === 'POST' && url.pathname === '/api/food/add') {
       const body = await readBody(req);
       const data = loadData();
-      const auth = authenticate(data, body.name, body.pin);
+      const auth = authenticate(data, body.name, body.pin, body.tz);
       if (!auth) return sendJson(res, 401, { error: 'Not authenticated.' });
       const { user } = auth;
 
@@ -714,7 +869,7 @@ const server = http.createServer(async (req, res) => {
       const protein = Number(body.protein);
       if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return sendJson(res, 400, { error: 'Bad date.' });
       if (!meal) return sendJson(res, 400, { error: 'Meal must be breakfast, lunch, or dinner.' });
-      const today = todayStr();
+      const today = todayStr(user.timezone);
       if (date > today) return sendJson(res, 400, { error: 'Cannot log a future day.' });
       if (date < user.startDate) return sendJson(res, 400, { error: 'Before your start date.' });
       if (!Number.isFinite(calories) || calories < 0 || calories > 10000) {
@@ -743,7 +898,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && url.pathname === '/api/food/remove') {
       const body = await readBody(req);
       const data = loadData();
-      const auth = authenticate(data, body.name, body.pin);
+      const auth = authenticate(data, body.name, body.pin, body.tz);
       if (!auth) return sendJson(res, 401, { error: 'Not authenticated.' });
       const { user } = auth;
 
@@ -756,7 +911,7 @@ const server = http.createServer(async (req, res) => {
       }
       saveData(data);
 
-      const today = todayStr();
+      const today = todayStr(user.timezone);
       const status = computeStatus(user, today);
       return sendJson(res, 200, { ok: true, day: user.days[date] || {}, status });
     }
@@ -778,7 +933,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && url.pathname === '/api/friends/request') {
       const body = await readBody(req);
       const data = loadData();
-      const auth = authenticate(data, body.name, body.pin);
+      const auth = authenticate(data, body.name, body.pin, body.tz);
       if (!auth) return sendJson(res, 401, { error: 'Not authenticated.' });
       const { key, user } = auth;
 
@@ -807,7 +962,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && url.pathname === '/api/friends/accept') {
       const body = await readBody(req);
       const data = loadData();
-      const auth = authenticate(data, body.name, body.pin);
+      const auth = authenticate(data, body.name, body.pin, body.tz);
       if (!auth) return sendJson(res, 401, { error: 'Not authenticated.' });
       const { key, user } = auth;
 
@@ -827,7 +982,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && url.pathname === '/api/friends/decline') {
       const body = await readBody(req);
       const data = loadData();
-      const auth = authenticate(data, body.name, body.pin);
+      const auth = authenticate(data, body.name, body.pin, body.tz);
       if (!auth) return sendJson(res, 401, { error: 'Not authenticated.' });
       const { key, user } = auth;
 
@@ -846,7 +1001,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && url.pathname === '/api/friends/remove') {
       const body = await readBody(req);
       const data = loadData();
-      const auth = authenticate(data, body.name, body.pin);
+      const auth = authenticate(data, body.name, body.pin, body.tz);
       if (!auth) return sendJson(res, 401, { error: 'Not authenticated.' });
       const { key, user } = auth;
 
@@ -889,13 +1044,13 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && url.pathname === '/api/photo') {
       const body = await readBody(req, MAX_PHOTO_BYTES + 100000);
       const data = loadData();
-      const auth = authenticate(data, body.name, body.pin);
+      const auth = authenticate(data, body.name, body.pin, body.tz);
       if (!auth) return sendJson(res, 401, { error: 'Not authenticated.' });
       const { key, user } = auth;
 
       const date = String(body.date || '');
       if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return sendJson(res, 400, { error: 'Bad date.' });
-      const today = todayStr();
+      const today = todayStr(user.timezone);
       if (date > today) return sendJson(res, 400, { error: 'Cannot log a future day.' });
       if (date < user.startDate) return sendJson(res, 400, { error: 'Before your start date.' });
 
@@ -921,7 +1076,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && url.pathname === '/api/photo/remove') {
       const body = await readBody(req);
       const data = loadData();
-      const auth = authenticate(data, body.name, body.pin);
+      const auth = authenticate(data, body.name, body.pin, body.tz);
       if (!auth) return sendJson(res, 401, { error: 'Not authenticated.' });
       const { key, user } = auth;
 
@@ -932,7 +1087,7 @@ const server = http.createServer(async (req, res) => {
         delete rec.photo;
         saveData(data);
       }
-      const today = todayStr();
+      const today = todayStr(user.timezone);
       const status = computeStatus(user, today);
       return sendJson(res, 200, { ok: true, day: user.days[date] || {}, status });
     }
@@ -943,11 +1098,11 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && url.pathname === '/api/restart') {
       const body = await readBody(req);
       const data = loadData();
-      const auth = authenticate(data, body.name, body.pin);
+      const auth = authenticate(data, body.name, body.pin, body.tz);
       if (!auth) return sendJson(res, 401, { error: 'Not authenticated.' });
       const { user } = auth;
 
-      user.startDate = todayStr();
+      user.startDate = todayStr(user.timezone);
       user.days = {};
       saveData(data);
       return sendJson(res, 200, { ok: true });
@@ -970,9 +1125,6 @@ const server = http.createServer(async (req, res) => {
 // server restarts since it's persisted with everything else.
 function localHourMinute(timeZone) {
   return new Date().toLocaleString('en-US', { timeZone, hour12: false, hour: '2-digit', minute: '2-digit' });
-}
-function localDateKey(timeZone) {
-  return new Date().toLocaleDateString('en-CA', { timeZone }); // en-CA -> YYYY-MM-DD
 }
 
 async function tickPushScheduler() {
