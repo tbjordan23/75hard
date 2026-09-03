@@ -1,0 +1,13 @@
+{
+  "name": "75hard",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Shared 75 Hard challenge tracker for a small group",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

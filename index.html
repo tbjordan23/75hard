@@ -1,0 +1,845 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>75 Hard Tracker</title>
+<style>
+  :root {
+    color-scheme: light;
+    --page: #f9f9f7;
+    --surface: #fcfcfb;
+    --text-primary: #0b0b0b;
+    --text-secondary: #52514e;
+    --muted: #898781;
+    --gridline: #e1e0d9;
+    --border: rgba(11,11,11,0.10);
+    --good: #0ca30c;
+    --critical: #d03b3b;
+    --accent: #2a78d6;
+    --accent-wash: rgba(42,120,214,0.12);
+    --good-wash: rgba(12,163,12,0.12);
+    --critical-wash: rgba(208,59,59,0.10);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --page: #0d0d0d;
+      --surface: #1a1a19;
+      --text-primary: #ffffff;
+      --text-secondary: #c3c2b7;
+      --muted: #898781;
+      --gridline: #2c2c2a;
+      --border: rgba(255,255,255,0.10);
+      --accent: #3987e5;
+      --accent-wash: rgba(57,135,229,0.16);
+      --good-wash: rgba(12,163,12,0.18);
+      --critical-wash: rgba(230,103,103,0.16);
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --page: #0d0d0d;
+    --surface: #1a1a19;
+    --text-primary: #ffffff;
+    --text-secondary: #c3c2b7;
+    --muted: #898781;
+    --gridline: #2c2c2a;
+    --border: rgba(255,255,255,0.10);
+    --accent: #3987e5;
+    --accent-wash: rgba(57,135,229,0.16);
+    --good-wash: rgba(12,163,12,0.18);
+    --critical-wash: rgba(230,103,103,0.16);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--page);
+    color: var(--text-primary);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 780px; margin: 0 auto; padding: 24px 16px 64px; }
+  h1, h2, h3 { font-weight: 700; letter-spacing: -0.01em; }
+  h1 { font-size: 20px; margin: 0; }
+  h2 { font-size: 15px; margin: 0 0 12px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.04em; }
+  h3 { font-size: 13.5px; margin: 0 0 8px; }
+  a { color: inherit; }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 18px 20px;
+    margin-bottom: 16px;
+  }
+
+  /* ---- login ---- */
+  #login-screen { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; }
+  .login-card { max-width: 360px; width: 100%; text-align: center; }
+  .login-card .logo { font-size: 34px; margin-bottom: 4px; }
+  .login-card p { color: var(--text-secondary); font-size: 14px; line-height: 1.5; margin: 8px 0 20px; }
+  .field { text-align: left; margin-bottom: 12px; }
+  .field label { display: block; font-size: 12px; color: var(--text-secondary); margin-bottom: 4px; }
+  input[type="text"], input[type="password"], input[type="number"] {
+    width: 100%; padding: 10px 12px; border-radius: 9px; border: 1px solid var(--border);
+    background: var(--page); color: var(--text-primary); font-size: 15px; font-family: inherit;
+  }
+  input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  button {
+    font-family: inherit; font-size: 14px; font-weight: 600; cursor: pointer;
+    border-radius: 9px; border: 1px solid var(--border); padding: 10px 16px;
+    background: var(--surface); color: var(--text-primary);
+  }
+  button:hover { filter: brightness(0.97); }
+  @media (prefers-color-scheme: dark) { button:hover { filter: brightness(1.15); } }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; width: 100%; }
+  button.small { padding: 6px 11px; font-size: 12.5px; }
+  button.danger { color: var(--critical); border-color: var(--critical); background: transparent; }
+  button.ghost { background: transparent; border-color: transparent; color: var(--text-secondary); }
+  #login-error { color: var(--critical); font-size: 13px; margin-top: 10px; min-height: 16px; }
+
+  /* ---- app header ---- */
+  #app-screen { display: none; }
+  header.top { display: flex; align-items: center; justify-content: space-between; padding: 6px 0 18px; }
+  header.top .who { font-size: 14px; color: var(--text-secondary); }
+  header.top .actions { display: flex; gap: 8px; }
+
+  /* ---- today card ---- */
+  .task-row {
+    display: flex; align-items: center; gap: 12px; padding: 10px 4px;
+    border-bottom: 1px solid var(--gridline);
+  }
+  .task-row:last-child { border-bottom: none; }
+  .task-check {
+    width: 24px; height: 24px; border-radius: 7px; border: 1.5px solid var(--border);
+    display: flex; align-items: center; justify-content: center; flex: 0 0 auto;
+    cursor: pointer; background: var(--page); color: transparent; font-size: 15px;
+  }
+  .task-check.done { background: var(--good); border-color: var(--good); color: #fff; }
+  .task-label { font-size: 14.5px; flex: 1; cursor: pointer; }
+  .task-label.done { color: var(--text-secondary); text-decoration: line-through; text-decoration-color: var(--gridline); }
+  .today-banner {
+    display: flex; align-items: center; gap: 8px; font-size: 13.5px; font-weight: 600;
+    padding: 8px 12px; border-radius: 9px; margin-top: 12px; background: var(--good-wash); color: var(--good);
+  }
+  .today-banner.pending { background: var(--accent-wash); color: var(--accent); }
+
+  /* ---- nutrition ---- */
+  .goal-form .field { margin-bottom: 10px; }
+  .radio-row { display: flex; gap: 8px; margin-bottom: 12px; }
+  .radio-opt {
+    flex: 1; border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px;
+    cursor: pointer; font-size: 13px;
+  }
+  .radio-opt.selected { border-color: var(--accent); background: var(--accent-wash); }
+  .radio-opt b { display: block; font-size: 13.5px; margin-bottom: 2px; }
+  .radio-opt span { color: var(--text-secondary); font-size: 12px; }
+  .nut-summary { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+  .nut-summary .mode-tag { font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.03em; color: var(--accent); font-weight: 700; }
+  .nut-bars { display: flex; flex-direction: column; gap: 10px; margin-bottom: 14px; }
+  .nut-bar-label { display: flex; justify-content: space-between; font-size: 12.5px; color: var(--text-secondary); margin-bottom: 4px; }
+  .nut-bar-label b { color: var(--text-primary); font-variant-numeric: tabular-nums; }
+  .bar { height: 10px; border-radius: 6px; background: var(--gridline); overflow: hidden; }
+  .bar > div { height: 100%; border-radius: 6px; background: var(--accent); transition: width .2s; }
+  .bar > div.met { background: var(--good); }
+  .food-entry {
+    display: flex; align-items: center; gap: 8px; padding: 7px 0; border-bottom: 1px solid var(--gridline); font-size: 13px;
+  }
+  .food-entry .fname { flex: 1; }
+  .food-entry .fmacros { color: var(--text-secondary); font-variant-numeric: tabular-nums; font-size: 12px; }
+  .food-entry .frm { color: var(--muted); cursor: pointer; border: none; background: none; font-size: 15px; padding: 2px 4px; }
+  .food-add-row { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
+  .food-add-row input[type="text"] { flex: 2 1 120px; }
+  .food-add-row input[type="number"] { flex: 1 1 70px; }
+
+  /* ---- progress ---- */
+  .progress-top { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 10px; }
+  .progress-top .big { font-size: 26px; font-weight: 800; font-variant-numeric: proportional-nums; }
+  .progress-top .of { font-size: 14px; color: var(--text-secondary); }
+  .stat-row { display: flex; gap: 18px; margin-top: 12px; flex-wrap: wrap; }
+  .stat { font-size: 12.5px; color: var(--text-secondary); }
+  .stat b { color: var(--text-primary); font-weight: 700; }
+
+  /* ---- calendar grid ---- */
+  .cal-grid { display: grid; grid-template-columns: repeat(15, 1fr); gap: 4px; }
+  @media (max-width: 520px) { .cal-grid { grid-template-columns: repeat(10, 1fr); } }
+  .cal-cell {
+    aspect-ratio: 1; border-radius: 4px; background: var(--gridline);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 9px; color: var(--muted); position: relative;
+  }
+  .cal-cell.done { background: var(--good); color: rgba(255,255,255,0.85); }
+  .cal-cell.missed { background: var(--critical-wash); color: var(--critical); }
+  .cal-cell.today { outline: 2px solid var(--accent); outline-offset: 1px; color: var(--accent); font-weight: 700; }
+  .cal-legend { display: flex; gap: 14px; margin-top: 12px; flex-wrap: wrap; }
+  .cal-legend span { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--text-secondary); }
+  .swatch { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+
+  /* ---- group table ---- */
+  .table-scroll { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  th, td { text-align: left; padding: 9px 6px; border-bottom: 1px solid var(--gridline); white-space: nowrap; }
+  th { color: var(--text-secondary); font-weight: 600; font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.03em; }
+  td.num { font-variant-numeric: tabular-nums; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; background: var(--gridline); }
+  .dot.done { background: var(--good); }
+  .you-row td { font-weight: 700; }
+  .finished-badge { font-size: 11px; background: var(--good-wash); color: var(--good); padding: 2px 7px; border-radius: 20px; font-weight: 700; margin-left: 6px; }
+  .mode-badge { font-size: 10.5px; color: var(--text-secondary); font-weight: 500; }
+
+  .rules-note { font-size: 12.5px; color: var(--muted); line-height: 1.5; margin-top: 4px; }
+  footer.foot { text-align: center; color: var(--muted); font-size: 12px; padding-top: 8px; }
+
+  /* ---- photo upload (today card) ---- */
+  .photo-slot { display: flex; align-items: center; gap: 12px; padding: 10px 4px; }
+  .photo-thumb {
+    width: 52px; height: 52px; border-radius: 9px; object-fit: cover; border: 1px solid var(--border);
+    background: var(--gridline); flex: 0 0 auto; cursor: pointer;
+  }
+  .photo-placeholder {
+    width: 52px; height: 52px; border-radius: 9px; border: 1.5px dashed var(--border); flex: 0 0 auto;
+    display: flex; align-items: center; justify-content: center; font-size: 20px; color: var(--muted);
+  }
+  .photo-slot .plabel { flex: 1; font-size: 14.5px; }
+  .photo-slot .psub { font-size: 12px; color: var(--muted); }
+
+  /* ---- friends ---- */
+  .request-row {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    padding: 8px 10px; background: var(--accent-wash); border-radius: 9px; margin-bottom: 6px; font-size: 13px;
+  }
+  .request-row .btns { display: flex; gap: 6px; }
+  .pending-row { font-size: 12px; color: var(--muted); padding: 4px 2px; }
+  .pending-row button { padding: 2px 8px; font-size: 11.5px; margin-left: 6px; }
+  .friend-card {
+    border: 1px solid var(--border); border-radius: 12px; padding: 14px; margin-top: 12px;
+  }
+  .friend-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+  .friend-head .fname { font-weight: 700; font-size: 14.5px; }
+  .friend-head .fmeta { font-size: 12px; color: var(--text-secondary); }
+  .friend-checklist { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+  .fchip {
+    font-size: 11.5px; padding: 3px 9px; border-radius: 20px; background: var(--gridline); color: var(--text-secondary);
+  }
+  .fchip.done { background: var(--good-wash); color: var(--good); }
+  .fchip.miss { background: var(--critical-wash); color: var(--critical); }
+  .friend-nut { display: flex; gap: 16px; font-size: 12px; color: var(--text-secondary); margin: 6px 0; flex-wrap: wrap; }
+  .friend-nut b.ok { color: var(--good); }
+  .friend-nut b.bad { color: var(--critical); }
+  .friend-photos { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+  .friend-photos img {
+    width: 46px; height: 46px; border-radius: 8px; object-fit: cover; border: 1px solid var(--border);
+  }
+  .friend-photos a:first-child img { width: 60px; height: 60px; }
+</style>
+</head>
+<body>
+
+<div id="login-screen">
+  <div class="card login-card">
+    <div class="logo">💪</div>
+    <h1>75 Hard Tracker</h1>
+    <p>Enter your name and a PIN. First time using that name creates your profile; use the same PIN to log back in.</p>
+    <div class="field">
+      <label for="name-input">Name</label>
+      <input type="text" id="name-input" autocomplete="name" placeholder="e.g. Travis">
+    </div>
+    <div class="field">
+      <label for="pin-input">4–6 digit PIN</label>
+      <input type="password" id="pin-input" inputmode="numeric" autocomplete="off" placeholder="••••" maxlength="6">
+    </div>
+    <button class="primary" id="login-btn">Enter</button>
+    <div id="login-error"></div>
+  </div>
+</div>
+
+<div id="app-screen">
+  <div class="wrap">
+    <header class="top">
+      <div>
+        <h1 id="header-name">—</h1>
+        <div class="who">75 Hard, group edition</div>
+      </div>
+      <div class="actions">
+        <button class="ghost" id="logout-btn">Log out</button>
+      </div>
+    </header>
+
+    <div class="card">
+      <h2>Today · <span id="today-date"></span></h2>
+      <div id="task-list"></div>
+      <div id="photo-row"></div>
+      <input type="file" id="photo-file-input" accept="image/*" capture="environment" style="display:none">
+      <div class="today-banner" id="today-banner"></div>
+    </div>
+
+    <div class="card" id="nutrition-card">
+      <h2>Nutrition</h2>
+      <div id="nutrition-body"></div>
+    </div>
+
+    <div class="card">
+      <h2>Your progress</h2>
+      <div class="progress-top">
+        <div><span class="big" id="completed-days">0</span> <span class="of" id="target-days-label">/ 75 days</span></div>
+        <div class="of" id="day-number-label">Day 1</div>
+      </div>
+      <div class="bar"><div id="progress-bar-fill" style="width:0%"></div></div>
+      <div class="stat-row">
+        <div class="stat">Remaining: <b id="remaining-days">75</b></div>
+        <div class="stat">Missed days: <b id="missed-days">0</b></div>
+      </div>
+      <p class="rules-note">Miss any requirement on a day and it doesn't reset you to Day 1 — it just adds <b>2 days</b> to your total (75 + 2× missed days). Keep going.</p>
+
+      <h2 style="margin-top:20px">Calendar</h2>
+      <div class="cal-grid" id="cal-grid"></div>
+      <div class="cal-legend">
+        <span><i class="swatch" style="background:var(--good)"></i> complete</span>
+        <span><i class="swatch" style="background:var(--critical-wash)"></i> missed</span>
+        <span><i class="swatch" style="background:var(--gridline)"></i> upcoming</span>
+        <span><i class="swatch" style="background:var(--surface);outline:2px solid var(--accent)"></i> today</span>
+      </div>
+
+      <div style="margin-top:16px">
+        <button class="danger" id="reset-btn">Reset all my progress</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Friends</h2>
+      <p class="rules-note" style="margin-top:0">Add a few people to hold each other accountable — see their daily checklist, nutrition, and progress photos.</p>
+      <div id="requests-body"></div>
+      <div class="food-add-row" style="margin-top:6px">
+        <input type="text" id="friend-name-input" placeholder="Friend's name">
+        <button id="friend-add-btn">Send request</button>
+      </div>
+      <div id="friends-list"></div>
+    </div>
+
+    <div class="card">
+      <h2>Group</h2>
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr><th>Name</th><th>Day</th><th>Progress</th><th>Missed</th><th>Today</th></tr>
+          </thead>
+          <tbody id="group-body"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <footer class="foot">75 Hard Tracker — Instructional Design Central, LLC</footer>
+  </div>
+</div>
+
+<script>
+(function () {
+  var TASKS = [];
+  var TODAY = '';
+  var me = null;
+  var creds = null; // { name, pin, key }
+  var goalFormMode = null; // 'standard' | 'bulk' — pending selection while editing goals
+  var editingGoals = false;
+
+  var el = {
+    loginScreen: document.getElementById('login-screen'),
+    appScreen: document.getElementById('app-screen'),
+    nameInput: document.getElementById('name-input'),
+    pinInput: document.getElementById('pin-input'),
+    loginBtn: document.getElementById('login-btn'),
+    loginError: document.getElementById('login-error'),
+    logoutBtn: document.getElementById('logout-btn'),
+    headerName: document.getElementById('header-name'),
+    todayDate: document.getElementById('today-date'),
+    taskList: document.getElementById('task-list'),
+    photoRow: document.getElementById('photo-row'),
+    photoFileInput: document.getElementById('photo-file-input'),
+    todayBanner: document.getElementById('today-banner'),
+    nutritionBody: document.getElementById('nutrition-body'),
+    completedDays: document.getElementById('completed-days'),
+    targetDaysLabel: document.getElementById('target-days-label'),
+    dayNumberLabel: document.getElementById('day-number-label'),
+    progressBarFill: document.getElementById('progress-bar-fill'),
+    remainingDays: document.getElementById('remaining-days'),
+    missedDays: document.getElementById('missed-days'),
+    calGrid: document.getElementById('cal-grid'),
+    resetBtn: document.getElementById('reset-btn'),
+    groupBody: document.getElementById('group-body'),
+    requestsBody: document.getElementById('requests-body'),
+    friendNameInput: document.getElementById('friend-name-input'),
+    friendAddBtn: document.getElementById('friend-add-btn'),
+    friendsList: document.getElementById('friends-list'),
+  };
+
+  function saveCreds(c) {
+    try { localStorage.setItem('75hard_creds', JSON.stringify(c)); } catch (e) {}
+  }
+  function loadCreds() {
+    try { return JSON.parse(localStorage.getItem('75hard_creds') || 'null'); } catch (e) { return null; }
+  }
+  function clearCreds() {
+    try { localStorage.removeItem('75hard_creds'); } catch (e) {}
+  }
+
+  function api(method, path, body) {
+    return fetch(path, {
+      method: method,
+      headers: body ? { 'Content-Type': 'application/json' } : undefined,
+      body: body ? JSON.stringify(body) : undefined,
+    }).then(function (r) {
+      return r.json().then(function (data) {
+        if (!r.ok) throw new Error(data.error || 'Request failed');
+        return data;
+      });
+    });
+  }
+
+  function login(name, pin) {
+    return api('POST', '/api/login', { name: name, pin: pin }).then(function (data) {
+      creds = { name: name, pin: pin, key: data.key };
+      saveCreds(creds);
+      return loadState();
+    });
+  }
+
+  function loadState() {
+    var q = '/api/state?name=' + encodeURIComponent(creds.name) + '&pin=' + encodeURIComponent(creds.pin);
+    return api('GET', q).then(function (data) {
+      TASKS = data.tasks;
+      TODAY = data.today;
+      me = data.me;
+      renderAll(data);
+      showApp();
+    });
+  }
+
+  function showApp() {
+    el.loginScreen.style.display = 'none';
+    el.appScreen.style.display = 'block';
+  }
+  function showLogin(errMsg) {
+    el.appScreen.style.display = 'none';
+    el.loginScreen.style.display = 'flex';
+    el.loginError.textContent = errMsg || '';
+  }
+
+  function fmtDate(iso) {
+    var d = new Date(iso + 'T00:00:00Z');
+    return d.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric', timeZone: 'UTC' });
+  }
+
+  function renderAll(data) {
+    el.headerName.textContent = me.name;
+    el.todayDate.textContent = fmtDate(TODAY);
+    renderTasks();
+    renderPhotoRow();
+    renderNutrition();
+    renderProgress();
+    renderCalendar();
+    renderGroup(data.group);
+    renderFriends();
+  }
+
+  function photoUrl(ownerKey, date) {
+    return '/api/photo?owner=' + encodeURIComponent(ownerKey) + '&date=' + encodeURIComponent(date) +
+      '&name=' + encodeURIComponent(creds.name) + '&pin=' + encodeURIComponent(creds.pin);
+  }
+
+  function renderTasks() {
+    var todayRec = (me.days && me.days[TODAY]) || {};
+    var checklistTasks = TASKS.filter(function (t) { return t.key !== 'photo'; });
+    el.taskList.innerHTML = '';
+    checklistTasks.forEach(function (t) {
+      var done = !!todayRec[t.key];
+      var row = document.createElement('div');
+      row.className = 'task-row';
+      row.innerHTML =
+        '<div class="task-check' + (done ? ' done' : '') + '" data-task="' + t.key + '">' + (done ? '✓' : '') + '</div>' +
+        '<div class="task-label' + (done ? ' done' : '') + '" data-task="' + t.key + '">' + t.label + '</div>';
+      el.taskList.appendChild(row);
+    });
+
+    var s = me.status;
+    el.todayBanner.className = 'today-banner' + (s.todayComplete ? '' : ' pending');
+    if (s.todayComplete) {
+      el.todayBanner.textContent = '✅ Today complete — nice work.';
+    } else {
+      var left = checklistTasks.filter(function (t) { return !todayRec[t.key]; }).length;
+      var bits = [];
+      if (left > 0) bits.push(left + ' task(s)');
+      if (!todayRec.photo) bits.push('photo');
+      if (s.todayNutrition.required && !s.todayNutrition.met) bits.push('nutrition target');
+      el.todayBanner.textContent = '⏳ Still open today: ' + (bits.length ? bits.join(' + ') : 'nutrition target') + '.';
+    }
+
+    Array.prototype.forEach.call(document.querySelectorAll('[data-task]'), function (node) {
+      node.addEventListener('click', function () {
+        toggleTask(node.getAttribute('data-task'));
+      });
+    });
+  }
+
+  function toggleTask(taskKey) {
+    api('POST', '/api/toggle', { name: creds.name, pin: creds.pin, date: TODAY, task: taskKey })
+      .then(function () { return loadState(); })
+      .catch(function (e) { alert(e.message); });
+  }
+
+  // ---- progress photo ----
+
+  function renderPhotoRow() {
+    var todayRec = (me.days && me.days[TODAY]) || {};
+    var has = !!todayRec.photo;
+    var thumb = has
+      ? '<img class="photo-thumb" id="photo-thumb" src="' + photoUrl(creds.key, TODAY) + '" alt="Today\'s progress photo">'
+      : '<div class="photo-placeholder" id="photo-thumb">📷</div>';
+    el.photoRow.innerHTML =
+      '<div class="photo-slot">' + thumb +
+      '<div class="plabel">Progress photo<div class="psub">' + (has ? 'Uploaded — tap to replace' : 'Tap to upload today\'s photo') + '</div></div>' +
+      (has ? '<button class="ghost small" id="photo-remove-btn">Remove</button>' : '') +
+      '</div>';
+
+    document.getElementById('photo-thumb').addEventListener('click', function () {
+      el.photoFileInput.click();
+    });
+    var removeBtn = document.getElementById('photo-remove-btn');
+    if (removeBtn) {
+      removeBtn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        api('POST', '/api/photo/remove', { name: creds.name, pin: creds.pin, date: TODAY })
+          .then(function () { return loadState(); })
+          .catch(function (e2) { alert(e2.message); });
+      });
+    }
+  }
+
+  el.photoFileInput.addEventListener('change', function () {
+    var file = el.photoFileInput.files && el.photoFileInput.files[0];
+    el.photoFileInput.value = '';
+    if (!file) return;
+    if (file.size > 6 * 1024 * 1024) { alert('Image too large (max 6MB).'); return; }
+    var reader = new FileReader();
+    reader.onload = function () {
+      api('POST', '/api/photo', { name: creds.name, pin: creds.pin, date: TODAY, dataUrl: reader.result })
+        .then(function () { return loadState(); })
+        .catch(function (e) { alert(e.message); });
+    };
+    reader.readAsDataURL(file);
+  });
+
+  // ---- nutrition ----
+
+  function renderNutrition() {
+    if (!me.goals || editingGoals) {
+      renderGoalForm();
+    } else {
+      renderNutritionTracker();
+    }
+  }
+
+  function renderGoalForm() {
+    var mode = goalFormMode || (me.goals && me.goals.mode) || 'standard';
+    var calories = (me.goals && me.goals.calories) || '';
+    var protein = (me.goals && me.goals.protein) || '';
+    el.nutritionBody.innerHTML =
+      '<div class="goal-form">' +
+        '<p class="rules-note" style="margin-top:0">Set your daily targets. Goal type controls how many workouts count toward "Today complete."</p>' +
+        '<div class="radio-row">' +
+          '<div class="radio-opt' + (mode === 'standard' ? ' selected' : '') + '" data-mode="standard">' +
+            '<b>Cutting / maintaining</b><span>2 workouts/day, one outdoors</span>' +
+          '</div>' +
+          '<div class="radio-opt' + (mode === 'bulk' ? ' selected' : '') + '" data-mode="bulk">' +
+            '<b>Bulking</b><span>1 workout/day, strength &amp; hypertrophy</span>' +
+          '</div>' +
+        '</div>' +
+        '<div class="field"><label for="goal-calories">Daily calorie target</label>' +
+          '<input type="number" id="goal-calories" min="0" step="10" value="' + calories + '" placeholder="e.g. 3300"></div>' +
+        '<div class="field"><label for="goal-protein">Daily protein target (g)</label>' +
+          '<input type="number" id="goal-protein" min="0" step="5" value="' + protein + '" placeholder="e.g. 160"></div>' +
+        '<button class="primary" id="goal-save-btn">Save targets</button>' +
+        (me.goals ? '<button class="ghost small" id="goal-cancel-btn" style="margin-top:6px;width:100%">Cancel</button>' : '') +
+        '<div id="goal-error" style="color:var(--critical);font-size:12.5px;margin-top:8px"></div>' +
+      '</div>';
+
+    Array.prototype.forEach.call(el.nutritionBody.querySelectorAll('.radio-opt'), function (node) {
+      node.addEventListener('click', function () {
+        goalFormMode = node.getAttribute('data-mode');
+        renderGoalForm();
+      });
+    });
+    document.getElementById('goal-save-btn').addEventListener('click', function () {
+      var cal = parseFloat(document.getElementById('goal-calories').value);
+      var pro = parseFloat(document.getElementById('goal-protein').value);
+      var errEl = document.getElementById('goal-error');
+      if (!(cal > 0) || !(pro > 0)) { errEl.textContent = 'Enter a calorie and protein target.'; return; }
+      api('POST', '/api/goals', { name: creds.name, pin: creds.pin, mode: mode, calories: cal, protein: pro })
+        .then(function () { editingGoals = false; goalFormMode = null; return loadState(); })
+        .catch(function (e) { errEl.textContent = e.message; });
+    });
+    var cancelBtn = document.getElementById('goal-cancel-btn');
+    if (cancelBtn) cancelBtn.addEventListener('click', function () { editingGoals = false; goalFormMode = null; renderNutrition(); });
+  }
+
+  function renderNutritionTracker() {
+    var s = me.status;
+    var n = s.todayNutrition;
+    var todayRec = (me.days && me.days[TODAY]) || {};
+    var food = todayRec.food || [];
+    var calPct = Math.min(100, Math.round((n.calories / n.calorieGoal) * 100));
+    var proPct = Math.min(100, Math.round((n.protein / n.proteinGoal) * 100));
+
+    var html = '';
+    html += '<div class="nut-summary">' +
+      '<span class="mode-tag">' + (me.goals.mode === 'bulk' ? 'Bulking' : 'Cutting / maintaining') + '</span>' +
+      '<button class="ghost small" id="goal-edit-btn">Edit targets</button>' +
+      '</div>';
+    html += '<div class="nut-bars">' +
+      '<div><div class="nut-bar-label"><span>Calories</span><b>' + n.calories + ' / ' + n.calorieGoal + '</b></div>' +
+        '<div class="bar"><div class="' + (n.calorieOk ? 'met' : '') + '" style="width:' + calPct + '%"></div></div></div>' +
+      '<div><div class="nut-bar-label"><span>Protein</span><b>' + n.protein + 'g / ' + n.proteinGoal + 'g</b></div>' +
+        '<div class="bar"><div class="' + (n.proteinOk ? 'met' : '') + '" style="width:' + proPct + '%"></div></div></div>' +
+      '</div>';
+
+    html += '<h3>Logged today</h3>';
+    if (food.length === 0) {
+      html += '<p class="rules-note" style="margin:0 0 6px">Nothing logged yet.</p>';
+    } else {
+      html += '<div id="food-entries">';
+      food.forEach(function (f) {
+        html += '<div class="food-entry">' +
+          '<span class="fname">' + escapeHtml(f.label) + '</span>' +
+          '<span class="fmacros">' + f.calories + ' cal · ' + f.protein + 'g</span>' +
+          '<button class="frm" data-id="' + f.id + '" title="Remove">✕</button>' +
+          '</div>';
+      });
+      html += '</div>';
+    }
+
+    html += '<div class="food-add-row">' +
+      '<input type="text" id="food-label" placeholder="e.g. Chicken &amp; rice">' +
+      '<input type="number" id="food-calories" placeholder="cal" min="0">' +
+      '<input type="number" id="food-protein" placeholder="protein g" min="0">' +
+      '<button id="food-add-btn">Add</button>' +
+      '</div>';
+
+    el.nutritionBody.innerHTML = html;
+
+    document.getElementById('goal-edit-btn').addEventListener('click', function () {
+      editingGoals = true;
+      goalFormMode = me.goals.mode;
+      renderNutrition();
+    });
+    Array.prototype.forEach.call(el.nutritionBody.querySelectorAll('.frm'), function (btn) {
+      btn.addEventListener('click', function () {
+        api('POST', '/api/food/remove', { name: creds.name, pin: creds.pin, date: TODAY, id: btn.getAttribute('data-id') })
+          .then(function () { return loadState(); })
+          .catch(function (e) { alert(e.message); });
+      });
+    });
+    document.getElementById('food-add-btn').addEventListener('click', function () {
+      var label = document.getElementById('food-label').value.trim();
+      var cal = parseFloat(document.getElementById('food-calories').value);
+      var pro = parseFloat(document.getElementById('food-protein').value);
+      if (!label) { alert('Enter a food description.'); return; }
+      if (!(cal >= 0) || !(pro >= 0)) { alert('Enter calories and protein.'); return; }
+      api('POST', '/api/food/add', { name: creds.name, pin: creds.pin, date: TODAY, label: label, calories: cal, protein: pro })
+        .then(function () { return loadState(); })
+        .catch(function (e) { alert(e.message); });
+    });
+  }
+
+  // ---- progress / calendar / group ----
+
+  function renderProgress() {
+    var s = me.status;
+    el.completedDays.textContent = s.completedDays;
+    el.targetDaysLabel.textContent = '/ ' + s.targetDays + ' days';
+    el.dayNumberLabel.textContent = 'Day ' + s.dayNumber;
+    var pct = Math.min(100, Math.round((s.completedDays / s.targetDays) * 100));
+    el.progressBarFill.style.width = pct + '%';
+    el.remainingDays.textContent = s.remaining;
+    el.missedDays.textContent = s.missedDays;
+  }
+
+  function renderCalendar() {
+    var s = me.status;
+    el.calGrid.innerHTML = '';
+    var total = Math.max(s.targetDays, s.dayNumber);
+    for (var i = 1; i <= total; i++) {
+      var date = addDaysStr(me.startDate, i - 1);
+      var isPast = date < TODAY;
+      var isToday = date === TODAY;
+      var complete = s.completeByDate[date];
+      var cls = 'cal-cell';
+      if (complete) cls += ' done';
+      else if (isPast) cls += ' missed';
+      if (isToday) cls += ' today';
+      var cell = document.createElement('div');
+      cell.className = cls;
+      cell.title = date;
+      cell.textContent = isToday ? i : '';
+      el.calGrid.appendChild(cell);
+    }
+  }
+
+  function addDaysStr(dateStr, n) {
+    var d = new Date(dateStr + 'T00:00:00Z');
+    d.setUTCDate(d.getUTCDate() + n);
+    return d.toISOString().slice(0, 10);
+  }
+
+  function renderGroup(group) {
+    el.groupBody.innerHTML = '';
+    group.forEach(function (u) {
+      var isYou = u.name === me.name;
+      var tr = document.createElement('tr');
+      if (isYou) tr.className = 'you-row';
+      tr.innerHTML =
+        '<td>' + escapeHtml(u.name) + (isYou ? ' (you)' : '') +
+          ' <span class="mode-badge">' + (u.mode === 'bulk' ? '· bulk' : '') + '</span>' +
+          (u.finished ? '<span class="finished-badge">DONE</span>' : '') + '</td>' +
+        '<td class="num">' + u.dayNumber + '</td>' +
+        '<td class="num">' + u.completedDays + ' / ' + u.targetDays + '</td>' +
+        '<td class="num">' + u.missedDays + '</td>' +
+        '<td><span class="dot' + (u.todayComplete ? ' done' : '') + '"></span></td>';
+      el.groupBody.appendChild(tr);
+    });
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+
+  // ---- friends ----
+
+  function renderFriends() {
+    var incoming = me.incomingRequests || [];
+    var outgoing = me.outgoingRequests || [];
+    var reqHtml = '';
+    incoming.forEach(function (r) {
+      reqHtml += '<div class="request-row"><span><b>' + escapeHtml(r.name) + '</b> wants to be friends</span>' +
+        '<span class="btns">' +
+        '<button class="small" data-accept="' + r.key + '">Accept</button>' +
+        '<button class="ghost small" data-decline="' + r.key + '">Decline</button>' +
+        '</span></div>';
+    });
+    outgoing.forEach(function (r) {
+      reqHtml += '<div class="pending-row">Request sent to ' + escapeHtml(r.name) +
+        ' <button class="ghost" data-decline="' + r.key + '">Cancel</button></div>';
+    });
+    el.requestsBody.innerHTML = reqHtml;
+
+    Array.prototype.forEach.call(el.requestsBody.querySelectorAll('[data-accept]'), function (btn) {
+      btn.addEventListener('click', function () {
+        api('POST', '/api/friends/accept', { name: creds.name, pin: creds.pin, friendKey: btn.getAttribute('data-accept') })
+          .then(function () { return loadState(); })
+          .catch(function (e) { alert(e.message); });
+      });
+    });
+    Array.prototype.forEach.call(el.requestsBody.querySelectorAll('[data-decline]'), function (btn) {
+      btn.addEventListener('click', function () {
+        api('POST', '/api/friends/decline', { name: creds.name, pin: creds.pin, friendKey: btn.getAttribute('data-decline') })
+          .then(function () { return loadState(); })
+          .catch(function (e) { alert(e.message); });
+      });
+    });
+
+    var friends = me.friends || [];
+    if (friends.length === 0) {
+      el.friendsList.innerHTML = '<p class="rules-note">No friends added yet.</p>';
+      return;
+    }
+    var html = '';
+    friends.forEach(function (f) {
+      html += '<div class="friend-card">' +
+        '<div class="friend-head">' +
+          '<div><span class="fname">' + escapeHtml(f.name) + '</span>' +
+            (f.finished ? '<span class="finished-badge">DONE</span>' : '') + '</div>' +
+          '<div class="fmeta">Day ' + f.dayNumber + ' · ' + f.completedDays + '/' + f.targetDays +
+            (f.mode === 'bulk' ? ' · bulk' : '') +
+            ' <button class="ghost small" data-unfriend="' + f.key + '">Remove</button></div>' +
+        '</div>' +
+        '<div class="friend-checklist">' +
+        f.today.tasks.map(function (t) {
+          return '<span class="fchip ' + (t.done ? 'done' : 'miss') + '">' + (t.done ? '✓ ' : '· ') + t.label.split(' — ')[0] + '</span>';
+        }).join('') +
+        '</div>' +
+        '<div class="friend-nut">' +
+          (f.today.nutrition.required
+            ? '<span>Calories: <b class="' + (f.today.nutrition.calorieOk ? 'ok' : 'bad') + '">' + f.today.nutrition.calories + ' / ' + f.today.nutrition.calorieGoal + '</b></span>' +
+              '<span>Protein: <b class="' + (f.today.nutrition.proteinOk ? 'ok' : 'bad') + '">' + f.today.nutrition.protein + 'g / ' + f.today.nutrition.proteinGoal + 'g</b></span>'
+            : '<span>No nutrition goals set yet</span>') +
+        '</div>' +
+        (f.photoDates.length > 0
+          ? '<div class="friend-photos">' + f.photoDates.map(function (d) {
+              return '<a href="' + photoUrl(f.key, d) + '" target="_blank" rel="noopener" title="' + d + '"><img src="' + photoUrl(f.key, d) + '" alt="' + escapeHtml(f.name) + ' — ' + d + '"></a>';
+            }).join('') + '</div>'
+          : '<p class="rules-note" style="margin:6px 0 0">No photos yet.</p>') +
+        '</div>';
+    });
+    el.friendsList.innerHTML = html;
+
+    Array.prototype.forEach.call(el.friendsList.querySelectorAll('[data-unfriend]'), function (btn) {
+      btn.addEventListener('click', function () {
+        if (!confirm('Remove this friend?')) return;
+        api('POST', '/api/friends/remove', { name: creds.name, pin: creds.pin, friendKey: btn.getAttribute('data-unfriend') })
+          .then(function () { return loadState(); })
+          .catch(function (e) { alert(e.message); });
+      });
+    });
+  }
+
+  el.friendAddBtn.addEventListener('click', function () {
+    var name = el.friendNameInput.value.trim();
+    if (!name) return;
+    api('POST', '/api/friends/request', { name: creds.name, pin: creds.pin, friendName: name })
+      .then(function () { el.friendNameInput.value = ''; return loadState(); })
+      .catch(function (e) { alert(e.message); });
+  });
+  el.friendNameInput.addEventListener('keydown', function (e) { if (e.key === 'Enter') el.friendAddBtn.click(); });
+
+  el.loginBtn.addEventListener('click', function () {
+    var name = el.nameInput.value.trim();
+    var pin = el.pinInput.value.trim();
+    if (!name) { el.loginError.textContent = 'Enter your name.'; return; }
+    if (!/^\d{4,6}$/.test(pin)) { el.loginError.textContent = 'PIN must be 4-6 digits.'; return; }
+    el.loginError.textContent = '';
+    login(name, pin).catch(function (e) { el.loginError.textContent = e.message; });
+  });
+  el.pinInput.addEventListener('keydown', function (e) { if (e.key === 'Enter') el.loginBtn.click(); });
+  el.nameInput.addEventListener('keydown', function (e) { if (e.key === 'Enter') el.pinInput.focus(); });
+
+  el.logoutBtn.addEventListener('click', function () {
+    clearCreds();
+    creds = null;
+    el.nameInput.value = '';
+    el.pinInput.value = '';
+    showLogin();
+  });
+
+  el.resetBtn.addEventListener('click', function () {
+    if (!confirm('This wipes all your logged days and starts you back at Day 1. Continue?')) return;
+    api('POST', '/api/restart', { name: creds.name, pin: creds.pin })
+      .then(function () { return loadState(); })
+      .catch(function (e) { alert(e.message); });
+  });
+
+  // Try auto-login from stored creds.
+  var stored = loadCreds();
+  if (stored && stored.name && stored.pin) {
+    creds = stored;
+    loadState().catch(function () {
+      clearCreds();
+      showLogin();
+    });
+  } else {
+    showLogin();
+  }
+})();
+</script>
+</body>
+</html>
