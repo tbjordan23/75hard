@@ -44,6 +44,15 @@ function tasksForUser(user) {
 
 const MEALS = ['breakfast', 'lunch', 'dinner'];
 
+// Body weight: purely informational, never counts toward dayComplete/scoring.
+// A goal is a one-time setup (unit + starting weight + target weight by day
+// 75); day-to-day entries are logged onto user.days[date].weight like food.
+const WEIGHT_RANGE = { lb: [50, 700], kg: [20, 320] };
+function validWeight(unit, n) {
+  const range = WEIGHT_RANGE[unit] || WEIGHT_RANGE.lb;
+  return Number.isFinite(n) && n >= range[0] && n <= range[1];
+}
+
 // A day's calorie/protein target is "met" if protein clears the goal (protein
 // minimums matter whether you're cutting or bulking) and calories land within
 // this tolerance of the goal in either direction. Nobody without goals set yet
@@ -299,6 +308,7 @@ function authenticate(data, name, pin) {
   user.friends = user.friends || [];
   user.incoming = user.incoming || [];
   user.outgoing = user.outgoing || [];
+  user.weightGoal = user.weightGoal || null;
   return { key, user };
 }
 
@@ -311,6 +321,7 @@ function resolveUser(data, name) {
   user.friends = user.friends || [];
   user.incoming = user.incoming || [];
   user.outgoing = user.outgoing || [];
+  user.weightGoal = user.weightGoal || null;
   return { key, user };
 }
 
@@ -392,6 +403,7 @@ const server = http.createServer(async (req, res) => {
           name: user.displayName,
           startDate: user.startDate,
           goals: user.goals,
+          weightGoal: user.weightGoal,
           days: user.days,
           status,
           friends,
@@ -451,6 +463,73 @@ const server = http.createServer(async (req, res) => {
 
       const today = todayStr();
       return sendJson(res, 200, { ok: true, goals: user.goals, tasks: tasksForUser(user), status: computeStatus(user, today) });
+    }
+
+    // Set or update the weight goal: unit + Day 1 starting weight + target by
+    // day 75. Purely informational — never affects dayComplete/scoring. Also
+    // seeds user.days[startDate].weight with the starting weight if that day
+    // doesn't already have a logged entry, so Day 1 shows up in the history.
+    if (req.method === 'POST' && url.pathname === '/api/weight/goal') {
+      const body = await readBody(req);
+      const data = loadData();
+      const auth = authenticate(data, body.name, body.pin);
+      if (!auth) return sendJson(res, 401, { error: 'Not authenticated.' });
+      const { user } = auth;
+
+      const unit = body.unit === 'kg' ? 'kg' : 'lb';
+      const startWeight = Number(body.startWeight);
+      const goalWeight = Number(body.goalWeight);
+      if (!validWeight(unit, startWeight)) return sendJson(res, 400, { error: 'Enter a valid starting weight.' });
+      if (!validWeight(unit, goalWeight)) return sendJson(res, 400, { error: 'Enter a valid goal weight.' });
+
+      user.weightGoal = {
+        unit,
+        startWeight: Math.round(startWeight * 10) / 10,
+        goalWeight: Math.round(goalWeight * 10) / 10,
+      };
+      user.days[user.startDate] = user.days[user.startDate] || {};
+      if (user.days[user.startDate].weight === undefined) {
+        user.days[user.startDate].weight = user.weightGoal.startWeight;
+      }
+      saveData(data);
+      return sendJson(res, 200, { ok: true, weightGoal: user.weightGoal, days: user.days });
+    }
+
+    // Log (or overwrite) one day's weigh-in.
+    if (req.method === 'POST' && url.pathname === '/api/weight/log') {
+      const body = await readBody(req);
+      const data = loadData();
+      const auth = authenticate(data, body.name, body.pin);
+      if (!auth) return sendJson(res, 401, { error: 'Not authenticated.' });
+      const { user } = auth;
+
+      if (!user.weightGoal) return sendJson(res, 400, { error: 'Set your weight goal first.' });
+      const date = String(body.date || '');
+      const weight = Number(body.weight);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return sendJson(res, 400, { error: 'Bad date.' });
+      const today = todayStr();
+      if (date > today) return sendJson(res, 400, { error: 'Cannot log a future day.' });
+      if (date < user.startDate) return sendJson(res, 400, { error: 'Before your start date.' });
+      if (!validWeight(user.weightGoal.unit, weight)) return sendJson(res, 400, { error: 'Enter a valid weight.' });
+
+      user.days[date] = user.days[date] || {};
+      user.days[date].weight = Math.round(weight * 10) / 10;
+      saveData(data);
+      return sendJson(res, 200, { ok: true, day: user.days[date] });
+    }
+
+    // Remove one day's weigh-in (e.g. to fix a typo).
+    if (req.method === 'POST' && url.pathname === '/api/weight/log/remove') {
+      const body = await readBody(req);
+      const data = loadData();
+      const auth = authenticate(data, body.name, body.pin);
+      if (!auth) return sendJson(res, 401, { error: 'Not authenticated.' });
+      const { user } = auth;
+
+      const date = String(body.date || '');
+      if (user.days[date]) delete user.days[date].weight;
+      saveData(data);
+      return sendJson(res, 200, { ok: true, day: user.days[date] || {} });
     }
 
     // Add one food log entry to a given date.

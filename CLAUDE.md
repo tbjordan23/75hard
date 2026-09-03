@@ -4,7 +4,7 @@ Guidance for Claude Code when working in this project specifically. See the pare
 
 ## What this is
 
-A shared **75 Hard challenge tracker** for a small group (Travis + friends/family), with a soft-penalty scoring rule, per-person nutrition goals (broken out by meal), progress-photo history, a friends system for photo-based accountability, daily motivational quotes, and a day-complete celebration. Visual style is a single dark theme (no light mode), modeled after Frame.io.
+A shared **75 Hard challenge tracker** for a small group (Travis + friends/family), with a soft-penalty scoring rule, per-person nutrition goals (broken out by meal), body-weight goal tracking, progress-photo history, a friends system for photo-based accountability, daily motivational quotes, and a day-complete celebration. Visual style is a single dark theme (no light mode), modeled after Frame.io.
 
 **Stack:** Vanilla JS single-page app, same pattern as `mindmeter/` — no build step, no framework, no npm dependencies. `server.js` is the entire backend; `index.html` is the entire frontend. Login is name + 4-6 digit PIN (no email, no real auth — this is low-stakes and scoped to people you trust).
 
@@ -22,10 +22,11 @@ node server.js        # serves on http://localhost:3000
   - `POST /api/toggle` — flips one checkbox task for one date (not `photo` — see below).
   - `POST /api/goals` — sets a user's goal mode (`standard`/`bulk`) + calorie/protein targets.
   - `POST /api/food/add`, `POST /api/food/remove` — daily food log entries.
+  - `POST /api/weight/goal` — sets/updates unit + Day 1 weight + goal weight. `POST /api/weight/log`, `POST /api/weight/log/remove` — daily weigh-ins.
   - `POST /api/photo`, `GET /api/photo`, `POST /api/photo/remove` — progress photo upload/fetch/delete. Fetch is access-controlled: viewable only by the owner or a confirmed friend.
   - `POST /api/friends/request`, `/accept`, `/decline`, `/remove`, `GET /api/directory` — mutual friend graph.
   - `POST /api/restart` — manual full wipe of a user's history (not triggered automatically — see scoring rule below).
-- `index.html` — all CSS/JS inline, fetches the API and renders login → quote of the day → today's checklist/photo/nutrition (with a motivational quote strip between each card) → progress → 75-day calendar → my photo gallery → friends → group table.
+- `index.html` — all CSS/JS inline, fetches the API and renders login → quote of the day → today's checklist/photo/nutrition/body weight (with a motivational quote strip between each card) → progress → 75-day calendar → my photo gallery → friends → group table.
 
 ## The scoring rule (important — this diverges from "real" 75 Hard)
 
@@ -51,6 +52,15 @@ The `photo` task is **not a manual toggle** — `POST /api/toggle` rejects it. C
 
 - **Take photo vs. choose from library**: the Today card has two separate hidden `<input type="file">` elements (`photo-camera-input` has `capture="environment"`, `photo-library-input` doesn't) behind two explicit buttons, both funneled through the shared `handlePhotoFile()` uploader. That function guards on `creds` being non-null in the (async) `FileReader.onload` callback — a user can log out while a large file is still being read, and without the guard the stale closure throws trying to read `creds.name`.
 - **My photo gallery**: a "My photos" grid at the bottom of the Your Progress card (`renderPhotoGallery()`) lists every date in `me.days` that has a `.photo`, newest first, each linking to the full-size `/api/photo` URL. This is the user's own full history, same unbounded treatment as a friend's photo strip.
+
+## Body weight
+
+Per the user's request: record your weight on Day 1, and set a goal weight for Day 75. This is **purely informational and private** — `computeStatus()`/`dayComplete()` never look at it, it's not shown to friends or in the group table (unlike everything else, body weight is treated as sensitive-by-default), and it has no bearing on scoring.
+
+- `user.weightGoal = { unit: 'lb'|'kg', startWeight, goalWeight }`, set via `POST /api/weight/goal`. Setting it also seeds `user.days[user.startDate].weight = startWeight` (if that day doesn't already have an entry) so Day 1 shows up in the history automatically.
+- Day-to-day weigh-ins live on `user.days[date].weight` (a plain number), the same day-scoped pattern as food/photo — `POST /api/weight/log` / `POST /api/weight/log/remove`.
+- "Current weight" (client-side, `renderWeightTracker()` in `index.html`) is the most recent logged entry ≤ today, falling back to `startWeight` if nothing's been logged since Day 1. Progress toward goal is `(current - start) / (goal - start)`, clamped 0–100% — this formula works unmodified whether the goal is a loss (`goal < start`) or a gain (`goal > start`).
+- Validated ranges live in `WEIGHT_RANGE` in `server.js` (50–700 lb / 20–320 kg) — sanity bounds, not real limits.
 
 ## Friends (accountability)
 

@@ -197,6 +197,23 @@
   .meal-head h3 { margin: 0; }
   .meal-subtotal { font-size: 12px; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
 
+  /* ---- body weight ---- */
+  .weight-summary { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 8px; gap: 8px; flex-wrap: wrap; }
+  .weight-stat { text-align: left; }
+  .weight-stat .wlabel { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 2px; }
+  .weight-stat .wval { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .weight-stat.current .wval { font-size: 24px; color: var(--accent-2); }
+  .weight-note { font-size: 12.5px; color: var(--text-secondary); margin: 10px 0; }
+  .weight-log-row { display: flex; gap: 6px; margin: 12px 0; flex-wrap: wrap; }
+  .weight-log-row input[type="number"] { flex: 1 1 120px; }
+  .weight-history { max-height: 220px; overflow-y: auto; margin-top: 6px; }
+  .weight-entry {
+    display: flex; align-items: center; gap: 8px; padding: 7px 2px; border-bottom: 1px solid var(--gridline); font-size: 13px;
+  }
+  .weight-entry .wdate { flex: 1; color: var(--text-secondary); }
+  .weight-entry .wnum { font-variant-numeric: tabular-nums; font-weight: 600; }
+  .weight-entry .frm { color: var(--muted); cursor: pointer; border: none; background: none; font-size: 15px; padding: 2px 4px; }
+
   /* ---- progress ---- */
   .progress-top { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 10px; }
   .progress-top .big { font-size: 26px; font-weight: 800; font-variant-numeric: proportional-nums; }
@@ -369,6 +386,11 @@
       <div id="nutrition-body"></div>
     </div>
 
+    <div class="card" id="weight-card">
+      <h2>Body Weight</h2>
+      <div id="weight-body"></div>
+    </div>
+
     <div class="quote-strip" id="quote-strip-2"></div>
 
     <div class="card">
@@ -443,6 +465,8 @@
   var goalFormMode = null; // 'standard' | 'bulk' — pending selection while editing goals
   var lastTodayComplete = null; // tracks the false->true transition so we celebrate once, not on every reload
   var editingGoals = false;
+  var editingWeightGoal = false;
+  var weightUnitFormChoice = null; // 'lb' | 'kg' — pending selection while editing the weight goal
 
   // Small line-icon set (stroke-based, no emoji) to match a clean modern UI.
   var ICONS = {
@@ -553,6 +577,7 @@
     photoGallery: document.getElementById('photo-gallery'),
     todayBanner: document.getElementById('today-banner'),
     nutritionBody: document.getElementById('nutrition-body'),
+    weightBody: document.getElementById('weight-body'),
     completedDays: document.getElementById('completed-days'),
     targetDaysLabel: document.getElementById('target-days-label'),
     dayNumberLabel: document.getElementById('day-number-label'),
@@ -630,6 +655,10 @@
     var d = new Date(iso + 'T00:00:00Z');
     return d.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric', timeZone: 'UTC' });
   }
+  function fmtDateShort(iso) {
+    var d = new Date(iso + 'T00:00:00Z');
+    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' });
+  }
 
   function renderAll(data) {
     el.headerName.textContent = me.name;
@@ -638,6 +667,7 @@
     renderTasks();
     renderPhotoRow();
     renderNutrition();
+    renderWeight();
     renderProgress();
     renderCalendar();
     renderPhotoGallery();
@@ -918,6 +948,120 @@
         if (!label) { alert('Enter a food description.'); return; }
         if (!(cal >= 0) || !(pro >= 0)) { alert('Enter calories and protein.'); return; }
         api('POST', '/api/food/add', { name: creds.name, pin: creds.pin, date: TODAY, meal: meal, label: label, calories: cal, protein: pro })
+          .then(function () { return loadState(); })
+          .catch(function (e) { alert(e.message); });
+      });
+    });
+  }
+
+  // ---- body weight ----
+
+  function renderWeight() {
+    if (!me.weightGoal || editingWeightGoal) {
+      renderWeightGoalForm();
+    } else {
+      renderWeightTracker();
+    }
+  }
+
+  function renderWeightGoalForm() {
+    var unit = weightUnitFormChoice || (me.weightGoal && me.weightGoal.unit) || 'lb';
+    var startWeight = (me.weightGoal && me.weightGoal.startWeight) || '';
+    var goalWeight = (me.weightGoal && me.weightGoal.goalWeight) || '';
+    el.weightBody.innerHTML =
+      '<div class="goal-form">' +
+        '<p class="rules-note" style="margin-top:0">Record your weight on Day 1, then set a goal for where you want to be by Day 75. Purely for your own tracking — it doesn\'t affect your daily completion.</p>' +
+        '<div class="radio-row">' +
+          '<div class="radio-opt' + (unit === 'lb' ? ' selected' : '') + '" data-unit="lb"><b>Pounds</b><span>lb</span></div>' +
+          '<div class="radio-opt' + (unit === 'kg' ? ' selected' : '') + '" data-unit="kg"><b>Kilograms</b><span>kg</span></div>' +
+        '</div>' +
+        '<div class="field"><label for="weight-start">Day 1 weight (' + unit + ')</label>' +
+          '<input type="number" id="weight-start" min="0" step="0.1" value="' + startWeight + '" placeholder="e.g. 210"></div>' +
+        '<div class="field"><label for="weight-goal">Goal weight by Day 75 (' + unit + ')</label>' +
+          '<input type="number" id="weight-goal" min="0" step="0.1" value="' + goalWeight + '" placeholder="e.g. 190"></div>' +
+        '<button class="primary" id="weight-save-btn">Save weight goal</button>' +
+        (me.weightGoal ? '<button class="ghost small" id="weight-cancel-btn" style="margin-top:6px;width:100%">Cancel</button>' : '') +
+        '<div id="weight-error" style="color:var(--critical);font-size:12.5px;margin-top:8px"></div>' +
+      '</div>';
+
+    Array.prototype.forEach.call(el.weightBody.querySelectorAll('.radio-opt'), function (node) {
+      node.addEventListener('click', function () {
+        weightUnitFormChoice = node.getAttribute('data-unit');
+        renderWeightGoalForm();
+      });
+    });
+    document.getElementById('weight-save-btn').addEventListener('click', function () {
+      var sw = parseFloat(document.getElementById('weight-start').value);
+      var gw = parseFloat(document.getElementById('weight-goal').value);
+      var errEl = document.getElementById('weight-error');
+      if (!(sw > 0) || !(gw > 0)) { errEl.textContent = 'Enter a starting weight and a goal weight.'; return; }
+      api('POST', '/api/weight/goal', { name: creds.name, pin: creds.pin, unit: unit, startWeight: sw, goalWeight: gw })
+        .then(function () { editingWeightGoal = false; weightUnitFormChoice = null; return loadState(); })
+        .catch(function (e) { errEl.textContent = e.message; });
+    });
+    var cancelBtn = document.getElementById('weight-cancel-btn');
+    if (cancelBtn) cancelBtn.addEventListener('click', function () { editingWeightGoal = false; weightUnitFormChoice = null; renderWeight(); });
+  }
+
+  function renderWeightTracker() {
+    var goal = me.weightGoal;
+    var days = me.days || {};
+    var entries = Object.keys(days)
+      .filter(function (d) { return d <= TODAY && days[d] && days[d].weight != null; })
+      .sort()
+      .reverse()
+      .map(function (d) { return { date: d, weight: days[d].weight }; });
+
+    var current = entries.length ? entries[0].weight : goal.startWeight;
+    var totalDelta = goal.goalWeight - goal.startWeight;
+    var progressDelta = current - goal.startWeight;
+    var pct = totalDelta === 0 ? 100 : Math.max(0, Math.min(100, Math.round((progressDelta / totalDelta) * 100)));
+    var remaining = Math.round(Math.abs(goal.goalWeight - current) * 10) / 10;
+    var direction = totalDelta < 0 ? 'to lose' : totalDelta > 0 ? 'to gain' : 'to maintain';
+
+    var html = '';
+    html += '<div class="weight-summary">' +
+      '<div class="weight-stat"><div class="wlabel">Day 1</div><div class="wval">' + goal.startWeight + ' ' + goal.unit + '</div></div>' +
+      '<div class="weight-stat current"><div class="wlabel">Current</div><div class="wval">' + current + ' ' + goal.unit + '</div></div>' +
+      '<div class="weight-stat"><div class="wlabel">Goal</div><div class="wval">' + goal.goalWeight + ' ' + goal.unit + '</div></div>' +
+      '</div>';
+    html += '<div class="bar"><div class="' + (pct >= 100 ? 'met' : '') + '" style="width:' + pct + '%"></div></div>';
+    html += '<p class="weight-note">' + (remaining === 0
+      ? 'Goal reached — nice work.'
+      : remaining + ' ' + goal.unit + ' ' + direction + ' your goal.') +
+      ' <button class="ghost small" id="weight-edit-btn">Edit goal</button></p>';
+
+    var todayWeight = (days[TODAY] && days[TODAY].weight != null) ? days[TODAY].weight : '';
+    html += '<div class="weight-log-row">' +
+      '<input type="number" id="weight-today-input" min="0" step="0.1" placeholder="Today\'s weight (' + goal.unit + ')" value="' + todayWeight + '">' +
+      '<button id="weight-log-btn">' + (todayWeight !== '' ? 'Update' : 'Log weight') + '</button>' +
+      '</div>';
+
+    if (entries.length) {
+      html += '<div class="weight-history">' + entries.map(function (e) {
+        return '<div class="weight-entry"><span class="wdate">' + fmtDateShort(e.date) + '</span>' +
+          '<span class="wnum">' + e.weight + ' ' + goal.unit + '</span>' +
+          '<button class="frm" data-date="' + e.date + '" title="Remove">✕</button></div>';
+      }).join('') + '</div>';
+    }
+
+    el.weightBody.innerHTML = html;
+
+    document.getElementById('weight-edit-btn').addEventListener('click', function () {
+      editingWeightGoal = true;
+      weightUnitFormChoice = goal.unit;
+      renderWeight();
+    });
+    document.getElementById('weight-log-btn').addEventListener('click', function () {
+      var w = parseFloat(document.getElementById('weight-today-input').value);
+      if (!(w > 0)) { alert('Enter a valid weight.'); return; }
+      api('POST', '/api/weight/log', { name: creds.name, pin: creds.pin, date: TODAY, weight: w })
+        .then(function () { return loadState(); })
+        .catch(function (e) { alert(e.message); });
+    });
+    Array.prototype.forEach.call(el.weightBody.querySelectorAll('.frm'), function (btn) {
+      btn.addEventListener('click', function () {
+        api('POST', '/api/weight/log/remove', { name: creds.name, pin: creds.pin, date: btn.getAttribute('data-date') })
           .then(function () { return loadState(); })
           .catch(function (e) { alert(e.message); });
       });
