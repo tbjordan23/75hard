@@ -231,7 +231,8 @@ function publicUser(name, user, today) {
 }
 
 // Richer view of one friend for the accountability panel: today's task-by-task
-// breakdown, nutrition status, and their most recent progress photos.
+// breakdown, nutrition status, and their full progress-photo history (newest
+// first) — not just the latest one, so you can browse back through it.
 function friendSummary(friendKey, friendUser, today) {
   const status = computeStatus(friendUser, today);
   const tasks = tasksForUser(friendUser);
@@ -240,8 +241,7 @@ function friendSummary(friendKey, friendUser, today) {
   const photoDates = Object.keys(friendUser.days || {})
     .filter(d => d <= today && friendUser.days[d] && friendUser.days[d].photo)
     .sort()
-    .reverse()
-    .slice(0, 5);
+    .reverse();
 
   return {
     key: friendKey,

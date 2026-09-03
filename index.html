@@ -5,105 +5,107 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>75 Hard Tracker</title>
 <style>
+  /* Dark-only by design (like the reference — Frame.io doesn't ship a light
+     in-app theme either), so this is a single deliberate palette rather than
+     light/dark tokens. */
   :root {
-    color-scheme: light;
-    --page: #f9f9f7;
-    --surface: #fcfcfb;
-    --text-primary: #0b0b0b;
-    --text-secondary: #52514e;
-    --muted: #898781;
-    --gridline: #e1e0d9;
-    --border: rgba(11,11,11,0.10);
-    --good: #0ca30c;
-    --critical: #d03b3b;
-    --accent: #2a78d6;
-    --accent-wash: rgba(42,120,214,0.12);
-    --good-wash: rgba(12,163,12,0.12);
-    --critical-wash: rgba(208,59,59,0.10);
-  }
-  @media (prefers-color-scheme: dark) {
-    :root:not([data-theme="light"]) {
-      color-scheme: dark;
-      --page: #0d0d0d;
-      --surface: #1a1a19;
-      --text-primary: #ffffff;
-      --text-secondary: #c3c2b7;
-      --muted: #898781;
-      --gridline: #2c2c2a;
-      --border: rgba(255,255,255,0.10);
-      --accent: #3987e5;
-      --accent-wash: rgba(57,135,229,0.16);
-      --good-wash: rgba(12,163,12,0.18);
-      --critical-wash: rgba(230,103,103,0.16);
-    }
-  }
-  :root[data-theme="dark"] {
     color-scheme: dark;
-    --page: #0d0d0d;
-    --surface: #1a1a19;
-    --text-primary: #ffffff;
-    --text-secondary: #c3c2b7;
-    --muted: #898781;
-    --gridline: #2c2c2a;
-    --border: rgba(255,255,255,0.10);
-    --accent: #3987e5;
-    --accent-wash: rgba(57,135,229,0.16);
-    --good-wash: rgba(12,163,12,0.18);
-    --critical-wash: rgba(230,103,103,0.16);
+    --page: #0a0a0d;
+    --surface: #131318;
+    --surface-2: #1b1b22;
+    --text-primary: #f2f2f5;
+    --text-secondary: #9d9da8;
+    --muted: #6b6b76;
+    --gridline: rgba(255,255,255,0.07);
+    --border: rgba(255,255,255,0.09);
+    --border-strong: rgba(255,255,255,0.16);
+    --good: #33d17e;
+    --critical: #f8615b;
+    --accent: #7c5cff;
+    --accent-2: #a78bfa;
+    --accent-wash: rgba(124,92,255,0.14);
+    --good-wash: rgba(51,209,126,0.12);
+    --critical-wash: rgba(248,97,91,0.13);
+    --shadow: 0 1px 2px rgba(0,0,0,0.4), 0 12px 32px -16px rgba(0,0,0,0.55);
   }
 
   * { box-sizing: border-box; }
+  html { color-scheme: dark; }
   body {
     margin: 0;
-    background: var(--page);
+    background:
+      radial-gradient(900px 420px at 12% -10%, rgba(124,92,255,0.16), transparent 60%),
+      radial-gradient(700px 360px at 100% 0%, rgba(124,92,255,0.08), transparent 55%),
+      var(--page);
     color: var(--text-primary);
-    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-family: -apple-system, BlinkMacSystemFont, "Inter", system-ui, "Segoe UI", sans-serif;
     -webkit-font-smoothing: antialiased;
   }
-  .wrap { max-width: 780px; margin: 0 auto; padding: 24px 16px 64px; }
-  h1, h2, h3 { font-weight: 700; letter-spacing: -0.01em; }
-  h1 { font-size: 20px; margin: 0; }
-  h2 { font-size: 15px; margin: 0 0 12px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.04em; }
-  h3 { font-size: 13.5px; margin: 0 0 8px; }
+  .wrap { max-width: 780px; margin: 0 auto; padding: 28px 16px 72px; }
+  h1, h2, h3 { font-weight: 700; letter-spacing: -0.015em; }
+  h1 { font-size: 21px; margin: 0; }
+  h2 { font-size: 12.5px; margin: 0 0 14px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.08em; font-weight: 700; }
+  h3 { font-size: 13.5px; margin: 0 0 8px; letter-spacing: -0.005em; }
   a { color: inherit; }
 
   .card {
-    background: var(--surface);
+    background: linear-gradient(180deg, var(--surface), color-mix(in srgb, var(--surface) 92%, black));
     border: 1px solid var(--border);
-    border-radius: 14px;
-    padding: 18px 20px;
+    border-radius: 18px;
+    padding: 20px 22px;
     margin-bottom: 16px;
+    box-shadow: var(--shadow);
   }
 
   /* ---- login ---- */
-  #login-screen { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; }
+  #login-screen { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px;
+    background:
+      radial-gradient(900px 500px at 50% 0%, rgba(124,92,255,0.20), transparent 60%),
+      var(--page);
+  }
   .login-card { max-width: 360px; width: 100%; text-align: center; }
-  .login-card .logo { font-size: 34px; margin-bottom: 4px; }
-  .login-card p { color: var(--text-secondary); font-size: 14px; line-height: 1.5; margin: 8px 0 20px; }
+  .login-card .logo {
+    font-size: 21px; font-weight: 800; letter-spacing: -0.03em; color: #fff;
+    margin: 0 auto 14px; width: 56px; height: 56px; border-radius: 16px;
+    display: flex; align-items: center; justify-content: center;
+    background: linear-gradient(155deg, var(--accent), #5a3fd6);
+    box-shadow: 0 8px 24px -8px rgba(124,92,255,0.6);
+  }
+  .login-card p { color: var(--text-secondary); font-size: 14px; line-height: 1.55; margin: 10px 0 22px; }
   .field { text-align: left; margin-bottom: 12px; }
-  .field label { display: block; font-size: 12px; color: var(--text-secondary); margin-bottom: 4px; }
+  .field label { display: block; font-size: 12px; color: var(--text-secondary); margin-bottom: 6px; font-weight: 500; }
   input[type="text"], input[type="password"], input[type="number"] {
-    width: 100%; padding: 10px 12px; border-radius: 9px; border: 1px solid var(--border);
-    background: var(--page); color: var(--text-primary); font-size: 15px; font-family: inherit;
+    width: 100%; padding: 11px 13px; border-radius: 10px; border: 1px solid var(--border);
+    background: var(--surface-2); color: var(--text-primary); font-size: 15px; font-family: inherit;
+    transition: border-color .15s, box-shadow .15s;
   }
-  input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  input::placeholder { color: var(--muted); }
+  input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-wash); }
   button {
-    font-family: inherit; font-size: 14px; font-weight: 600; cursor: pointer;
-    border-radius: 9px; border: 1px solid var(--border); padding: 10px 16px;
-    background: var(--surface); color: var(--text-primary);
+    font-family: inherit; font-size: 13.5px; font-weight: 600; cursor: pointer;
+    border-radius: 10px; border: 1px solid var(--border); padding: 10px 16px;
+    background: var(--surface-2); color: var(--text-primary);
+    transition: border-color .15s, background .15s, transform .1s, box-shadow .15s;
   }
-  button:hover { filter: brightness(0.97); }
-  @media (prefers-color-scheme: dark) { button:hover { filter: brightness(1.15); } }
-  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; width: 100%; }
-  button.small { padding: 6px 11px; font-size: 12.5px; }
-  button.danger { color: var(--critical); border-color: var(--critical); background: transparent; }
+  button svg { vertical-align: -2.5px; margin-right: 6px; }
+  button:hover { border-color: var(--border-strong); background: color-mix(in srgb, var(--surface-2) 85%, white 4%); }
+  button:active { transform: translateY(1px); }
+  button.primary {
+    background: linear-gradient(155deg, var(--accent), #6845e0); border-color: transparent; color: #fff; width: 100%;
+    box-shadow: 0 6px 20px -6px rgba(124,92,255,0.55);
+  }
+  button.primary:hover { filter: brightness(1.08); }
+  button.small { padding: 6px 11px; font-size: 12px; }
+  button.danger { color: var(--critical); border-color: rgba(248,97,91,0.35); background: transparent; }
+  button.danger:hover { background: var(--critical-wash); }
   button.ghost { background: transparent; border-color: transparent; color: var(--text-secondary); }
+  button.ghost:hover { background: var(--surface-2); color: var(--text-primary); }
   #login-error { color: var(--critical); font-size: 13px; margin-top: 10px; min-height: 16px; }
 
   /* ---- app header ---- */
   #app-screen { display: none; }
-  header.top { display: flex; align-items: center; justify-content: space-between; padding: 6px 0 18px; }
-  header.top .who { font-size: 14px; color: var(--text-secondary); }
+  header.top { display: flex; align-items: center; justify-content: space-between; padding: 6px 0 20px; }
+  header.top .who { font-size: 13px; color: var(--text-secondary); }
   header.top .actions { display: flex; gap: 8px; }
 
   /* ---- today card ---- */
@@ -113,18 +115,54 @@
   }
   .task-row:last-child { border-bottom: none; }
   .task-check {
-    width: 24px; height: 24px; border-radius: 7px; border: 1.5px solid var(--border);
+    width: 22px; height: 22px; border-radius: 7px; border: 1.5px solid var(--border-strong);
     display: flex; align-items: center; justify-content: center; flex: 0 0 auto;
-    cursor: pointer; background: var(--page); color: transparent; font-size: 15px;
+    cursor: pointer; background: var(--surface-2); color: transparent;
+    transition: background .15s ease, border-color .15s ease, transform .1s ease;
   }
-  .task-check.done { background: var(--good); border-color: var(--good); color: #fff; }
+  .task-check:hover { border-color: var(--accent); }
+  .task-check.done {
+    background: linear-gradient(155deg, var(--good), #1fae63); border-color: transparent; color: #08150e;
+    animation: check-pop .22s ease;
+  }
+  @keyframes check-pop {
+    0% { transform: scale(0.8); }
+    55% { transform: scale(1.12); }
+    100% { transform: scale(1); }
+  }
   .task-label { font-size: 14.5px; flex: 1; cursor: pointer; }
   .task-label.done { color: var(--text-secondary); text-decoration: line-through; text-decoration-color: var(--gridline); }
   .today-banner {
-    display: flex; align-items: center; gap: 8px; font-size: 13.5px; font-weight: 600;
+    position: relative; display: flex; align-items: center; gap: 8px; font-size: 13.5px; font-weight: 600;
     padding: 8px 12px; border-radius: 9px; margin-top: 12px; background: var(--good-wash); color: var(--good);
+    border: 1px solid transparent;
   }
   .today-banner.pending { background: var(--accent-wash); color: var(--accent); }
+
+  /* ---- day-complete celebration: a soft pulse + rising sparkles, once per transition ---- */
+  .today-banner.celebrate {
+    animation: celebrate-pulse 700ms ease-out;
+    border-color: rgba(51,209,126,0.5);
+  }
+  @keyframes celebrate-pulse {
+    0% { transform: scale(0.97); box-shadow: 0 0 0 0 rgba(51,209,126,0.45); }
+    45% { transform: scale(1.015); box-shadow: 0 0 0 8px rgba(51,209,126,0); }
+    100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(51,209,126,0); }
+  }
+  .confetti-burst { position: absolute; inset: 0; pointer-events: none; overflow: visible; }
+  .confetti-piece {
+    position: absolute; bottom: 50%; width: 6px; height: 6px; border-radius: 50%;
+    background: currentColor; box-shadow: 0 0 6px 1px currentColor; opacity: 0;
+    animation: sparkle-rise 850ms ease-out forwards;
+  }
+  @keyframes sparkle-rise {
+    0% { opacity: 0; transform: translate(0, 0) scale(0.5); }
+    18% { opacity: 1; }
+    100% { opacity: 0; transform: translate(var(--drift), var(--rise)) scale(1); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .today-banner.celebrate, .confetti-piece { animation: none; }
+  }
 
   /* ---- nutrition ---- */
   .goal-form .field { margin-bottom: 10px; }
@@ -141,8 +179,8 @@
   .nut-bars { display: flex; flex-direction: column; gap: 10px; margin-bottom: 14px; }
   .nut-bar-label { display: flex; justify-content: space-between; font-size: 12.5px; color: var(--text-secondary); margin-bottom: 4px; }
   .nut-bar-label b { color: var(--text-primary); font-variant-numeric: tabular-nums; }
-  .bar { height: 10px; border-radius: 6px; background: var(--gridline); overflow: hidden; }
-  .bar > div { height: 100%; border-radius: 6px; background: var(--accent); transition: width .2s; }
+  .bar { height: 8px; border-radius: 6px; background: var(--surface-2); overflow: hidden; }
+  .bar > div { height: 100%; border-radius: 6px; background: linear-gradient(90deg, var(--accent), var(--accent-2)); transition: width .2s; }
   .bar > div.met { background: var(--good); }
   .food-entry {
     display: flex; align-items: center; gap: 8px; padding: 7px 0; border-bottom: 1px solid var(--gridline); font-size: 13px;
@@ -171,13 +209,13 @@
   .cal-grid { display: grid; grid-template-columns: repeat(15, 1fr); gap: 4px; }
   @media (max-width: 520px) { .cal-grid { grid-template-columns: repeat(10, 1fr); } }
   .cal-cell {
-    aspect-ratio: 1; border-radius: 4px; background: var(--gridline);
+    aspect-ratio: 1; border-radius: 5px; background: var(--surface-2);
     display: flex; align-items: center; justify-content: center;
     font-size: 9px; color: var(--muted); position: relative;
   }
-  .cal-cell.done { background: var(--good); color: rgba(255,255,255,0.85); }
+  .cal-cell.done { background: var(--good); color: rgba(10,10,13,0.65); font-weight: 700; }
   .cal-cell.missed { background: var(--critical-wash); color: var(--critical); }
-  .cal-cell.today { outline: 2px solid var(--accent); outline-offset: 1px; color: var(--accent); font-weight: 700; }
+  .cal-cell.today { outline: 2px solid var(--accent); outline-offset: 1px; color: var(--accent-2); font-weight: 700; }
   .cal-legend { display: flex; gap: 14px; margin-top: 12px; flex-wrap: wrap; }
   .cal-legend span { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--text-secondary); }
   .swatch { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
@@ -185,12 +223,15 @@
   /* ---- group table ---- */
   .table-scroll { overflow-x: auto; }
   table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
-  th, td { text-align: left; padding: 9px 6px; border-bottom: 1px solid var(--gridline); white-space: nowrap; }
-  th { color: var(--text-secondary); font-weight: 600; font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.03em; }
+  th, td { text-align: left; padding: 10px 6px; border-bottom: 1px solid var(--gridline); white-space: nowrap; }
+  th { color: var(--muted); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; }
   td.num { font-variant-numeric: tabular-nums; }
-  .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; background: var(--gridline); }
-  .dot.done { background: var(--good); }
+  tbody tr:hover { background: var(--surface-2); }
+  .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; background: var(--surface-2); box-shadow: inset 0 0 0 1px var(--border); }
+  .dot.done { background: var(--good); box-shadow: 0 0 8px -1px rgba(51,209,126,0.7); }
   .you-row td { font-weight: 700; }
+  .you-row { position: relative; }
+  .you-row td:first-child { box-shadow: inset 2px 0 0 var(--accent); padding-left: 10px; }
   .finished-badge { font-size: 11px; background: var(--good-wash); color: var(--good); padding: 2px 7px; border-radius: 20px; font-weight: 700; margin-left: 6px; }
   .mode-badge { font-size: 10.5px; color: var(--text-secondary); font-weight: 500; }
 
@@ -201,7 +242,7 @@
   .photo-slot { display: flex; align-items: center; gap: 12px; padding: 10px 4px; flex-wrap: wrap; }
   .photo-thumb {
     width: 52px; height: 52px; border-radius: 9px; object-fit: cover; border: 1px solid var(--border);
-    background: var(--gridline); flex: 0 0 auto;
+    background: var(--surface-2); flex: 0 0 auto;
   }
   .photo-thumb.clickable { cursor: pointer; }
   .photo-placeholder {
@@ -228,21 +269,23 @@
   .pending-row { font-size: 12px; color: var(--muted); padding: 4px 2px; }
   .pending-row button { padding: 2px 8px; font-size: 11.5px; margin-left: 6px; }
   .friend-card {
-    border: 1px solid var(--border); border-radius: 12px; padding: 14px; margin-top: 12px;
+    border: 1px solid var(--border); background: var(--surface-2); border-radius: 14px; padding: 15px; margin-top: 12px;
   }
   .friend-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
   .friend-head .fname { font-weight: 700; font-size: 14.5px; }
   .friend-head .fmeta { font-size: 12px; color: var(--text-secondary); }
   .friend-checklist { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
   .fchip {
-    font-size: 11.5px; padding: 3px 9px; border-radius: 20px; background: var(--gridline); color: var(--text-secondary);
+    font-size: 11.5px; padding: 3px 9px; border-radius: 20px; background: var(--page); color: var(--text-secondary);
+    border: 1px solid var(--border);
   }
   .fchip.done { background: var(--good-wash); color: var(--good); }
   .fchip.miss { background: var(--critical-wash); color: var(--critical); }
   .friend-nut { display: flex; gap: 16px; font-size: 12px; color: var(--text-secondary); margin: 6px 0; flex-wrap: wrap; }
   .friend-nut b.ok { color: var(--good); }
   .friend-nut b.bad { color: var(--critical); }
-  .friend-photos { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+  .friend-photos-label { font-size: 11.5px; color: var(--muted); margin-top: 8px; }
+  .friend-photos { display: flex; gap: 6px; margin-top: 4px; flex-wrap: wrap; }
   .friend-photos img {
     width: 46px; height: 46px; border-radius: 8px; object-fit: cover; border: 1px solid var(--border);
   }
@@ -250,22 +293,28 @@
 
   /* ---- motivational quotes ---- */
   .qotd {
-    background: var(--accent-wash); border: 1px solid var(--border); border-radius: 14px;
-    padding: 18px 20px; margin-bottom: 16px; text-align: center;
+    position: relative; overflow: hidden;
+    background:
+      radial-gradient(420px 160px at 50% -40px, rgba(124,92,255,0.35), transparent 70%),
+      linear-gradient(180deg, var(--surface), color-mix(in srgb, var(--surface) 92%, black));
+    border: 1px solid var(--border-strong); border-radius: 18px;
+    padding: 22px 20px; margin-bottom: 16px; text-align: center;
+    box-shadow: var(--shadow);
   }
   .qotd .qotd-eyebrow {
-    font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em;
-    color: var(--accent); margin-bottom: 8px;
+    font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em;
+    color: var(--accent-2); margin-bottom: 10px;
   }
   .qotd .qotd-text {
-    font-size: 16px; font-weight: 600; line-height: 1.45; color: var(--text-primary); margin: 0;
+    font-size: 17px; font-weight: 600; line-height: 1.45; color: var(--text-primary); margin: 0; letter-spacing: -0.01em;
   }
   .qotd .qotd-author {
-    font-size: 12.5px; color: var(--text-secondary); margin-top: 8px;
+    font-size: 12.5px; color: var(--text-secondary); margin-top: 10px;
   }
   .quote-strip {
     text-align: center; padding: 14px 20px; margin-bottom: 16px; font-size: 13px;
     font-style: italic; color: var(--text-secondary); line-height: 1.5;
+    border-top: 1px solid var(--gridline); border-bottom: 1px solid var(--gridline);
   }
   .quote-strip .qs-author { font-style: normal; color: var(--muted); font-size: 12px; }
 </style>
@@ -274,7 +323,7 @@
 
 <div id="login-screen">
   <div class="card login-card">
-    <div class="logo">💪</div>
+    <div class="logo">75</div>
     <h1>75 Hard Tracker</h1>
     <p>Enter your name and a PIN. First time using that name creates your profile; use the same PIN to log back in.</p>
     <div class="field">
@@ -392,7 +441,16 @@
   var me = null;
   var creds = null; // { name, pin, key }
   var goalFormMode = null; // 'standard' | 'bulk' — pending selection while editing goals
+  var lastTodayComplete = null; // tracks the false->true transition so we celebrate once, not on every reload
   var editingGoals = false;
+
+  // Small line-icon set (stroke-based, no emoji) to match a clean modern UI.
+  var ICONS = {
+    camera: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h3l1.6-2.2h6.8L17 8h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13.2" r="3.2"/></svg>',
+    cameraLg: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h3l1.6-2.2h6.8L17 8h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13.2" r="3.2"/></svg>',
+    image: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="4.5" width="17" height="15" rx="2.2"/><circle cx="9" cy="10" r="1.5"/><path d="M20 15.5l-5-4.8a1.4 1.4 0 0 0-2 0L4 19"/></svg>',
+    check: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg>',
+  };
 
   // ---- motivational quotes ----
   // Short, widely-known discipline/mental-toughness quotes. Selection below is
@@ -601,7 +659,7 @@
       var row = document.createElement('div');
       row.className = 'task-row';
       row.innerHTML =
-        '<div class="task-check' + (done ? ' done' : '') + '" data-task="' + t.key + '">' + (done ? '✓' : '') + '</div>' +
+        '<div class="task-check' + (done ? ' done' : '') + '" data-task="' + t.key + '">' + (done ? ICONS.check : '') + '</div>' +
         '<div class="task-label' + (done ? ' done' : '') + '" data-task="' + t.key + '">' + t.label + '</div>';
       el.taskList.appendChild(row);
     });
@@ -609,15 +667,20 @@
     var s = me.status;
     el.todayBanner.className = 'today-banner' + (s.todayComplete ? '' : ' pending');
     if (s.todayComplete) {
-      el.todayBanner.textContent = '✅ Today complete — nice work.';
+      el.todayBanner.innerHTML = ICONS.check + ' Today complete — nice work.';
     } else {
       var left = checklistTasks.filter(function (t) { return !todayRec[t.key]; }).length;
       var bits = [];
       if (left > 0) bits.push(left + ' task(s)');
       if (!todayRec.photo) bits.push('photo');
       if (s.todayNutrition.required && !s.todayNutrition.met) bits.push('nutrition target');
-      el.todayBanner.textContent = '⏳ Still open today: ' + (bits.length ? bits.join(' + ') : 'nutrition target') + '.';
+      el.todayBanner.textContent = 'Still open today: ' + (bits.length ? bits.join(' + ') : 'nutrition target') + '.';
     }
+
+    // Celebrate the exact moment today flips to complete — not on a plain page
+    // reload of an already-completed day (lastTodayComplete starts at null).
+    if (lastTodayComplete === false && s.todayComplete === true) celebrateDayComplete();
+    lastTodayComplete = s.todayComplete;
 
     Array.prototype.forEach.call(document.querySelectorAll('[data-task]'), function (node) {
       node.addEventListener('click', function () {
@@ -632,6 +695,30 @@
       .catch(function (e) { alert(e.message); });
   }
 
+  function celebrateDayComplete() {
+    var colors = ['var(--good)', 'var(--accent)', 'var(--accent-2)'];
+    var burst = document.createElement('div');
+    burst.className = 'confetti-burst';
+    for (var i = 0; i < 14; i++) {
+      var p = document.createElement('div');
+      p.className = 'confetti-piece';
+      var angle = (Math.random() * 140 - 70) * (Math.PI / 180); // fan upward, ±70° off vertical
+      var dist = 30 + Math.random() * 34;
+      p.style.left = (8 + Math.random() * 84) + '%';
+      p.style.color = colors[i % colors.length];
+      p.style.setProperty('--drift', Math.round(Math.sin(angle) * dist) + 'px');
+      p.style.setProperty('--rise', -Math.round(Math.cos(angle) * dist + 18) + 'px');
+      p.style.animationDelay = Math.round(Math.random() * 120) + 'ms';
+      burst.appendChild(p);
+    }
+    el.todayBanner.appendChild(burst);
+    el.todayBanner.classList.add('celebrate');
+    setTimeout(function () {
+      el.todayBanner.classList.remove('celebrate');
+      if (burst.parentNode) burst.parentNode.removeChild(burst);
+    }, 1000);
+  }
+
   // ---- progress photo ----
 
   function renderPhotoRow() {
@@ -639,13 +726,13 @@
     var has = !!todayRec.photo;
     var thumb = has
       ? '<img class="photo-thumb clickable" id="photo-thumb" src="' + photoUrl(creds.key, TODAY) + '" alt="Today\'s progress photo">'
-      : '<div class="photo-placeholder">📷</div>';
+      : '<div class="photo-placeholder">' + ICONS.cameraLg + '</div>';
     el.photoRow.innerHTML =
       '<div class="photo-slot">' + thumb +
       '<div class="plabel">Progress photo<div class="psub">' + (has ? 'Uploaded today' : 'Not uploaded yet') + '</div></div>' +
       '<div class="photo-btns">' +
-        '<button class="small" id="photo-camera-btn">📷 Take photo</button>' +
-        '<button class="ghost small" id="photo-library-btn">🖼️ Choose from library</button>' +
+        '<button class="small" id="photo-camera-btn">' + ICONS.camera + ' Take photo</button>' +
+        '<button class="ghost small" id="photo-library-btn">' + ICONS.image + ' Choose from library</button>' +
         (has ? '<button class="ghost small" id="photo-remove-btn">Remove</button>' : '') +
       '</div></div>';
 
@@ -671,6 +758,7 @@
     if (file.size > 6 * 1024 * 1024) { alert('Image too large (max 6MB).'); return; }
     var reader = new FileReader();
     reader.onload = function () {
+      if (!creds) return; // logged out while the file was still being read
       api('POST', '/api/photo', { name: creds.name, pin: creds.pin, date: TODAY, dataUrl: reader.result })
         .then(function () { return loadState(); })
         .catch(function (e) { alert(e.message); });
@@ -961,8 +1049,9 @@
             : '<span>No nutrition goals set yet</span>') +
         '</div>' +
         (f.photoDates.length > 0
-          ? '<div class="friend-photos">' + f.photoDates.map(function (d) {
-              return '<a href="' + photoUrl(f.key, d) + '" target="_blank" rel="noopener" title="' + d + '"><img src="' + photoUrl(f.key, d) + '" alt="' + escapeHtml(f.name) + ' — ' + d + '"></a>';
+          ? '<div class="friend-photos-label">Photos (' + f.photoDates.length + ')</div>' +
+            '<div class="friend-photos">' + f.photoDates.map(function (d) {
+              return '<a href="' + photoUrl(f.key, d) + '" target="_blank" rel="noopener" title="' + d + '"><img src="' + photoUrl(f.key, d) + '" loading="lazy" alt="' + escapeHtml(f.name) + ' — ' + d + '"></a>';
             }).join('') + '</div>'
           : '<p class="rules-note" style="margin:6px 0 0">No photos yet.</p>') +
         '</div>';
@@ -1002,6 +1091,7 @@
   el.logoutBtn.addEventListener('click', function () {
     clearCreds();
     creds = null;
+    lastTodayComplete = null;
     el.nameInput.value = '';
     el.pinInput.value = '';
     showLogin();
