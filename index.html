@@ -153,6 +153,11 @@
   .food-add-row { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
   .food-add-row input[type="text"] { flex: 2 1 120px; }
   .food-add-row input[type="number"] { flex: 1 1 70px; }
+  .meal-section { padding-top: 14px; margin-top: 14px; border-top: 1px solid var(--gridline); }
+  .meal-section:first-of-type { border-top: none; margin-top: 4px; padding-top: 4px; }
+  .meal-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 4px; }
+  .meal-head h3 { margin: 0; }
+  .meal-subtotal { font-size: 12px; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
 
   /* ---- progress ---- */
   .progress-top { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 10px; }
@@ -193,17 +198,26 @@
   footer.foot { text-align: center; color: var(--muted); font-size: 12px; padding-top: 8px; }
 
   /* ---- photo upload (today card) ---- */
-  .photo-slot { display: flex; align-items: center; gap: 12px; padding: 10px 4px; }
+  .photo-slot { display: flex; align-items: center; gap: 12px; padding: 10px 4px; flex-wrap: wrap; }
   .photo-thumb {
     width: 52px; height: 52px; border-radius: 9px; object-fit: cover; border: 1px solid var(--border);
-    background: var(--gridline); flex: 0 0 auto; cursor: pointer;
+    background: var(--gridline); flex: 0 0 auto;
   }
+  .photo-thumb.clickable { cursor: pointer; }
   .photo-placeholder {
     width: 52px; height: 52px; border-radius: 9px; border: 1.5px dashed var(--border); flex: 0 0 auto;
     display: flex; align-items: center; justify-content: center; font-size: 20px; color: var(--muted);
   }
-  .photo-slot .plabel { flex: 1; font-size: 14.5px; }
+  .photo-slot .plabel { flex: 1 1 120px; font-size: 14.5px; min-width: 0; }
   .photo-slot .psub { font-size: 12px; color: var(--muted); }
+  .photo-btns { display: flex; gap: 6px; flex-wrap: wrap; }
+
+  /* ---- my photo gallery ---- */
+  .gallery-grid { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+  .gallery-grid a { display: block; }
+  .gallery-grid img {
+    width: 56px; height: 56px; border-radius: 8px; object-fit: cover; border: 1px solid var(--border);
+  }
 
   /* ---- friends ---- */
   .request-row {
@@ -233,6 +247,27 @@
     width: 46px; height: 46px; border-radius: 8px; object-fit: cover; border: 1px solid var(--border);
   }
   .friend-photos a:first-child img { width: 60px; height: 60px; }
+
+  /* ---- motivational quotes ---- */
+  .qotd {
+    background: var(--accent-wash); border: 1px solid var(--border); border-radius: 14px;
+    padding: 18px 20px; margin-bottom: 16px; text-align: center;
+  }
+  .qotd .qotd-eyebrow {
+    font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em;
+    color: var(--accent); margin-bottom: 8px;
+  }
+  .qotd .qotd-text {
+    font-size: 16px; font-weight: 600; line-height: 1.45; color: var(--text-primary); margin: 0;
+  }
+  .qotd .qotd-author {
+    font-size: 12.5px; color: var(--text-secondary); margin-top: 8px;
+  }
+  .quote-strip {
+    text-align: center; padding: 14px 20px; margin-bottom: 16px; font-size: 13px;
+    font-style: italic; color: var(--text-secondary); line-height: 1.5;
+  }
+  .quote-strip .qs-author { font-style: normal; color: var(--muted); font-size: 12px; }
 </style>
 </head>
 <body>
@@ -267,18 +302,25 @@
       </div>
     </header>
 
+    <div class="qotd" id="qotd"></div>
+
     <div class="card">
       <h2>Today · <span id="today-date"></span></h2>
       <div id="task-list"></div>
       <div id="photo-row"></div>
-      <input type="file" id="photo-file-input" accept="image/*" capture="environment" style="display:none">
+      <input type="file" id="photo-camera-input" accept="image/*" capture="environment" style="display:none">
+      <input type="file" id="photo-library-input" accept="image/*" style="display:none">
       <div class="today-banner" id="today-banner"></div>
     </div>
+
+    <div class="quote-strip" id="quote-strip-1"></div>
 
     <div class="card" id="nutrition-card">
       <h2>Nutrition</h2>
       <div id="nutrition-body"></div>
     </div>
+
+    <div class="quote-strip" id="quote-strip-2"></div>
 
     <div class="card">
       <h2>Your progress</h2>
@@ -302,10 +344,15 @@
         <span><i class="swatch" style="background:var(--surface);outline:2px solid var(--accent)"></i> today</span>
       </div>
 
+      <h2 style="margin-top:20px">My photos</h2>
+      <div class="gallery-grid" id="photo-gallery"></div>
+
       <div style="margin-top:16px">
         <button class="danger" id="reset-btn">Reset all my progress</button>
       </div>
     </div>
+
+    <div class="quote-strip" id="quote-strip-3"></div>
 
     <div class="card">
       <h2>Friends</h2>
@@ -317,6 +364,8 @@
       </div>
       <div id="friends-list"></div>
     </div>
+
+    <div class="quote-strip" id="quote-strip-4"></div>
 
     <div class="card">
       <h2>Group</h2>
@@ -337,11 +386,97 @@
 <script>
 (function () {
   var TASKS = [];
+  var MEALS = ['breakfast', 'lunch', 'dinner'];
+  var MEAL_LABELS = { breakfast: 'Breakfast', lunch: 'Lunch', dinner: 'Dinner' };
   var TODAY = '';
   var me = null;
   var creds = null; // { name, pin, key }
   var goalFormMode = null; // 'standard' | 'bulk' — pending selection while editing goals
   var editingGoals = false;
+
+  // ---- motivational quotes ----
+  // Short, widely-known discipline/mental-toughness quotes. Selection below is
+  // deterministic per calendar day (same UTC date -> same picks for everyone in
+  // the group, so "today's quote" is actually shared), not random per page load.
+  var QUOTES = [
+    { text: "Discipline is the bridge between goals and accomplishment.", author: "Jim Rohn" },
+    { text: "Motivation is what gets you started. Habit is what keeps you going.", author: "Jim Ryun" },
+    { text: "The successful warrior is the average man, with laser-like focus.", author: "Bruce Lee" },
+    { text: "You don't have to be extreme, just consistent.", author: "Unknown" },
+    { text: "Suffer the pain of discipline or suffer the pain of regret.", author: "Jim Rohn" },
+    { text: "The pain you feel today will be the strength you feel tomorrow.", author: "Unknown" },
+    { text: "It's supposed to be hard. If it wasn't hard, everyone would do it.", author: "Tom Hanks" },
+    { text: "We are what we repeatedly do. Excellence, then, is not an act, but a habit.", author: "Will Durant" },
+    { text: "The only bad workout is the one that didn't happen.", author: "Unknown" },
+    { text: "Discipline equals freedom.", author: "Jocko Willink" },
+    { text: "Don't count the days, make the days count.", author: "Muhammad Ali" },
+    { text: "No one is going to come help you. No one's coming to save you.", author: "David Goggins" },
+    { text: "The mind will always give up before the body.", author: "David Goggins" },
+    { text: "You have to be able to endure hardship and pain.", author: "David Goggins" },
+    { text: "It's not who's going to let me; it's who's going to stop me.", author: "Ayn Rand" },
+    { text: "Champions keep playing until they get it right.", author: "Billie Jean King" },
+    { text: "The difference between the impossible and the possible lies in a person's determination.", author: "Tommy Lasorda" },
+    { text: "Whether you think you can or you think you can't, you're right.", author: "Henry Ford" },
+    { text: "The body achieves what the mind believes.", author: "Napoleon Hill" },
+    { text: "Strength does not come from winning. Your struggles develop your strengths.", author: "Arnold Schwarzenegger" },
+    { text: "A champion is someone who gets up when they can't.", author: "Jack Dempsey" },
+    { text: "Consistency is what transforms average into excellence.", author: "Unknown" },
+    { text: "Do something today that your future self will thank you for.", author: "Unknown" },
+    { text: "Small daily improvements are the key to staggering long-term results.", author: "Unknown" },
+    { text: "The only way to finish is to start.", author: "Unknown" },
+    { text: "It always seems impossible until it's done.", author: "Nelson Mandela" },
+    { text: "Comfort is the enemy of progress.", author: "P.T. Barnum" },
+    { text: "You are your only limit.", author: "Unknown" },
+    { text: "What seems impossible today will one day become your warm-up.", author: "Unknown" },
+    { text: "The cave you fear to enter holds the treasure you seek.", author: "Joseph Campbell" },
+    { text: "Nothing will work unless you do.", author: "Maya Angelou" },
+    { text: "Well done is better than well said.", author: "Benjamin Franklin" },
+    { text: "You will never always be motivated, so you must learn to be disciplined.", author: "Unknown" },
+    { text: "The moment you want to quit is the moment you need to keep pushing.", author: "Unknown" },
+    { text: "Effort only fully releases its reward after a person refuses to quit.", author: "Napoleon Hill" },
+    { text: "Fall seven times, stand up eight.", author: "Japanese proverb" },
+    { text: "Great things never came from comfort zones.", author: "Unknown" },
+    { text: "Push yourself, because no one else is going to do it for you.", author: "Unknown" },
+    { text: "One day or day one — you decide.", author: "Unknown" },
+    { text: "Excuses don't get you results.", author: "Unknown" },
+  ];
+
+  function hashStr(s) {
+    var h = 0;
+    for (var i = 0; i < s.length; i++) { h = (h * 31 + s.charCodeAt(i)) | 0; }
+    return h >>> 0;
+  }
+  function mulberry32(seed) {
+    return function () {
+      seed |= 0; seed = (seed + 0x6D2B79F5) | 0;
+      var t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  // Deterministic shuffle seeded by the date string, so the whole group sees the
+  // same "today's quotes" and they change once daily rather than on every render.
+  function quotesForToday(dateStr, count) {
+    var rand = mulberry32(hashStr(dateStr));
+    var idxs = QUOTES.map(function (_, i) { return i; });
+    for (var i = idxs.length - 1; i > 0; i--) {
+      var j = Math.floor(rand() * (i + 1));
+      var tmp = idxs[i]; idxs[i] = idxs[j]; idxs[j] = tmp;
+    }
+    return idxs.slice(0, count).map(function (i) { return QUOTES[i]; });
+  }
+  function renderQuotes(dateStr) {
+    var picks = quotesForToday(dateStr, 5);
+    var qotd = picks[0];
+    el.qotd.innerHTML =
+      '<div class="qotd-eyebrow">Quote of the day</div>' +
+      '<p class="qotd-text">“' + escapeHtml(qotd.text) + '”</p>' +
+      '<div class="qotd-author">— ' + escapeHtml(qotd.author) + '</div>';
+    [el.quoteStrip1, el.quoteStrip2, el.quoteStrip3, el.quoteStrip4].forEach(function (node, i) {
+      var q = picks[i + 1];
+      node.innerHTML = '“' + escapeHtml(q.text) + '” <span class="qs-author">— ' + escapeHtml(q.author) + '</span>';
+    });
+  }
 
   var el = {
     loginScreen: document.getElementById('login-screen'),
@@ -355,7 +490,9 @@
     todayDate: document.getElementById('today-date'),
     taskList: document.getElementById('task-list'),
     photoRow: document.getElementById('photo-row'),
-    photoFileInput: document.getElementById('photo-file-input'),
+    photoCameraInput: document.getElementById('photo-camera-input'),
+    photoLibraryInput: document.getElementById('photo-library-input'),
+    photoGallery: document.getElementById('photo-gallery'),
     todayBanner: document.getElementById('today-banner'),
     nutritionBody: document.getElementById('nutrition-body'),
     completedDays: document.getElementById('completed-days'),
@@ -371,6 +508,11 @@
     friendNameInput: document.getElementById('friend-name-input'),
     friendAddBtn: document.getElementById('friend-add-btn'),
     friendsList: document.getElementById('friends-list'),
+    qotd: document.getElementById('qotd'),
+    quoteStrip1: document.getElementById('quote-strip-1'),
+    quoteStrip2: document.getElementById('quote-strip-2'),
+    quoteStrip3: document.getElementById('quote-strip-3'),
+    quoteStrip4: document.getElementById('quote-strip-4'),
   };
 
   function saveCreds(c) {
@@ -408,6 +550,7 @@
     var q = '/api/state?name=' + encodeURIComponent(creds.name) + '&pin=' + encodeURIComponent(creds.pin);
     return api('GET', q).then(function (data) {
       TASKS = data.tasks;
+      MEALS = data.meals || MEALS;
       TODAY = data.today;
       me = data.me;
       renderAll(data);
@@ -433,11 +576,13 @@
   function renderAll(data) {
     el.headerName.textContent = me.name;
     el.todayDate.textContent = fmtDate(TODAY);
+    renderQuotes(TODAY);
     renderTasks();
     renderPhotoRow();
     renderNutrition();
     renderProgress();
     renderCalendar();
+    renderPhotoGallery();
     renderGroup(data.group);
     renderFriends();
   }
@@ -493,21 +638,25 @@
     var todayRec = (me.days && me.days[TODAY]) || {};
     var has = !!todayRec.photo;
     var thumb = has
-      ? '<img class="photo-thumb" id="photo-thumb" src="' + photoUrl(creds.key, TODAY) + '" alt="Today\'s progress photo">'
-      : '<div class="photo-placeholder" id="photo-thumb">📷</div>';
+      ? '<img class="photo-thumb clickable" id="photo-thumb" src="' + photoUrl(creds.key, TODAY) + '" alt="Today\'s progress photo">'
+      : '<div class="photo-placeholder">📷</div>';
     el.photoRow.innerHTML =
       '<div class="photo-slot">' + thumb +
-      '<div class="plabel">Progress photo<div class="psub">' + (has ? 'Uploaded — tap to replace' : 'Tap to upload today\'s photo') + '</div></div>' +
-      (has ? '<button class="ghost small" id="photo-remove-btn">Remove</button>' : '') +
-      '</div>';
+      '<div class="plabel">Progress photo<div class="psub">' + (has ? 'Uploaded today' : 'Not uploaded yet') + '</div></div>' +
+      '<div class="photo-btns">' +
+        '<button class="small" id="photo-camera-btn">📷 Take photo</button>' +
+        '<button class="ghost small" id="photo-library-btn">🖼️ Choose from library</button>' +
+        (has ? '<button class="ghost small" id="photo-remove-btn">Remove</button>' : '') +
+      '</div></div>';
 
-    document.getElementById('photo-thumb').addEventListener('click', function () {
-      el.photoFileInput.click();
-    });
+    var thumbEl = document.getElementById('photo-thumb');
+    if (thumbEl) thumbEl.addEventListener('click', function () { window.open(photoUrl(creds.key, TODAY), '_blank'); });
+
+    document.getElementById('photo-camera-btn').addEventListener('click', function () { el.photoCameraInput.click(); });
+    document.getElementById('photo-library-btn').addEventListener('click', function () { el.photoLibraryInput.click(); });
     var removeBtn = document.getElementById('photo-remove-btn');
     if (removeBtn) {
-      removeBtn.addEventListener('click', function (e) {
-        e.stopPropagation();
+      removeBtn.addEventListener('click', function () {
         api('POST', '/api/photo/remove', { name: creds.name, pin: creds.pin, date: TODAY })
           .then(function () { return loadState(); })
           .catch(function (e2) { alert(e2.message); });
@@ -515,9 +664,9 @@
     }
   }
 
-  el.photoFileInput.addEventListener('change', function () {
-    var file = el.photoFileInput.files && el.photoFileInput.files[0];
-    el.photoFileInput.value = '';
+  function handlePhotoFile(input) {
+    var file = input.files && input.files[0];
+    input.value = '';
     if (!file) return;
     if (file.size > 6 * 1024 * 1024) { alert('Image too large (max 6MB).'); return; }
     var reader = new FileReader();
@@ -527,7 +676,27 @@
         .catch(function (e) { alert(e.message); });
     };
     reader.readAsDataURL(file);
-  });
+  }
+  el.photoCameraInput.addEventListener('change', function () { handlePhotoFile(el.photoCameraInput); });
+  el.photoLibraryInput.addEventListener('change', function () { handlePhotoFile(el.photoLibraryInput); });
+
+  // ---- my photo gallery: every day you've uploaded a progress photo, newest first ----
+
+  function renderPhotoGallery() {
+    var days = me.days || {};
+    var dates = Object.keys(days)
+      .filter(function (d) { return days[d] && days[d].photo && d <= TODAY; })
+      .sort()
+      .reverse();
+    if (dates.length === 0) {
+      el.photoGallery.innerHTML = '<p class="rules-note" style="margin:0">No photos yet — upload one from the Today card.</p>';
+      return;
+    }
+    el.photoGallery.innerHTML = dates.map(function (d) {
+      var url = photoUrl(creds.key, d);
+      return '<a href="' + url + '" target="_blank" rel="noopener" title="' + d + '"><img src="' + url + '" loading="lazy" alt="Progress photo — ' + d + '"></a>';
+    }).join('');
+  }
 
   // ---- nutrition ----
 
@@ -602,27 +771,34 @@
         '<div class="bar"><div class="' + (n.proteinOk ? 'met' : '') + '" style="width:' + proPct + '%"></div></div></div>' +
       '</div>';
 
-    html += '<h3>Logged today</h3>';
-    if (food.length === 0) {
-      html += '<p class="rules-note" style="margin:0 0 6px">Nothing logged yet.</p>';
-    } else {
-      html += '<div id="food-entries">';
-      food.forEach(function (f) {
-        html += '<div class="food-entry">' +
-          '<span class="fname">' + escapeHtml(f.label) + '</span>' +
-          '<span class="fmacros">' + f.calories + ' cal · ' + f.protein + 'g</span>' +
-          '<button class="frm" data-id="' + f.id + '" title="Remove">✕</button>' +
-          '</div>';
-      });
-      html += '</div>';
-    }
+    MEALS.forEach(function (meal) {
+      var entries = food.filter(function (f) { return (f.meal || 'breakfast') === meal; });
+      var subtotal = entries.reduce(function (acc, f) { acc.cal += f.calories; acc.pro += f.protein; return acc; }, { cal: 0, pro: 0 });
 
-    html += '<div class="food-add-row">' +
-      '<input type="text" id="food-label" placeholder="e.g. Chicken &amp; rice">' +
-      '<input type="number" id="food-calories" placeholder="cal" min="0">' +
-      '<input type="number" id="food-protein" placeholder="protein g" min="0">' +
-      '<button id="food-add-btn">Add</button>' +
-      '</div>';
+      html += '<div class="meal-section">';
+      html += '<div class="meal-head"><h3>' + MEAL_LABELS[meal] + '</h3>' +
+        '<span class="meal-subtotal">' + subtotal.cal + ' cal · ' + subtotal.pro + 'g protein</span></div>';
+
+      if (entries.length === 0) {
+        html += '<p class="rules-note" style="margin:0 0 6px">Nothing logged yet.</p>';
+      } else {
+        entries.forEach(function (f) {
+          html += '<div class="food-entry">' +
+            '<span class="fname">' + escapeHtml(f.label) + '</span>' +
+            '<span class="fmacros">' + f.calories + ' cal · ' + f.protein + 'g</span>' +
+            '<button class="frm" data-id="' + f.id + '" title="Remove">✕</button>' +
+            '</div>';
+        });
+      }
+
+      html += '<div class="food-add-row">' +
+        '<input type="text" class="food-label" data-meal="' + meal + '" placeholder="e.g. Chicken &amp; rice">' +
+        '<input type="number" class="food-calories" data-meal="' + meal + '" placeholder="cal" min="0">' +
+        '<input type="number" class="food-protein" data-meal="' + meal + '" placeholder="protein g" min="0">' +
+        '<button class="food-add-btn" data-meal="' + meal + '">Add</button>' +
+        '</div>';
+      html += '</div>';
+    });
 
     el.nutritionBody.innerHTML = html;
 
@@ -638,15 +814,25 @@
           .catch(function (e) { alert(e.message); });
       });
     });
-    document.getElementById('food-add-btn').addEventListener('click', function () {
-      var label = document.getElementById('food-label').value.trim();
-      var cal = parseFloat(document.getElementById('food-calories').value);
-      var pro = parseFloat(document.getElementById('food-protein').value);
-      if (!label) { alert('Enter a food description.'); return; }
-      if (!(cal >= 0) || !(pro >= 0)) { alert('Enter calories and protein.'); return; }
-      api('POST', '/api/food/add', { name: creds.name, pin: creds.pin, date: TODAY, label: label, calories: cal, protein: pro })
-        .then(function () { return loadState(); })
-        .catch(function (e) { alert(e.message); });
+    Array.prototype.forEach.call(el.nutritionBody.querySelectorAll('.food-add-btn'), function (btn) {
+      btn.addEventListener('click', function () {
+        var meal = btn.getAttribute('data-meal');
+        var scope = el.nutritionBody.querySelectorAll('[data-meal="' + meal + '"]');
+        var labelInput, calInput, proInput;
+        Array.prototype.forEach.call(scope, function (node) {
+          if (node.classList.contains('food-label')) labelInput = node;
+          if (node.classList.contains('food-calories')) calInput = node;
+          if (node.classList.contains('food-protein')) proInput = node;
+        });
+        var label = labelInput.value.trim();
+        var cal = parseFloat(calInput.value);
+        var pro = parseFloat(proInput.value);
+        if (!label) { alert('Enter a food description.'); return; }
+        if (!(cal >= 0) || !(pro >= 0)) { alert('Enter calories and protein.'); return; }
+        api('POST', '/api/food/add', { name: creds.name, pin: creds.pin, date: TODAY, meal: meal, label: label, calories: cal, protein: pro })
+          .then(function () { return loadState(); })
+          .catch(function (e) { alert(e.message); });
+      });
     });
   }
 

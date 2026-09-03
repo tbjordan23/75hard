@@ -42,6 +42,8 @@ function tasksForUser(user) {
   return user.goals && user.goals.mode === 'bulk' ? BULK_TASKS : STANDARD_TASKS;
 }
 
+const MEALS = ['breakfast', 'lunch', 'dinner'];
+
 // A day's calorie/protein target is "met" if protein clears the goal (protein
 // minimums matter whether you're cutting or bulking) and calories land within
 // this tolerance of the goal in either direction. Nobody without goals set yet
@@ -383,6 +385,7 @@ const server = http.createServer(async (req, res) => {
 
       return sendJson(res, 200, {
         tasks: tasksForUser(user),
+        meals: MEALS,
         today,
         me: {
           key: auth.key,
@@ -460,9 +463,11 @@ const server = http.createServer(async (req, res) => {
 
       const date = String(body.date || '');
       const label = String(body.label || '').trim().slice(0, 120) || 'Food';
+      const meal = MEALS.includes(body.meal) ? body.meal : null;
       const calories = Number(body.calories);
       const protein = Number(body.protein);
       if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return sendJson(res, 400, { error: 'Bad date.' });
+      if (!meal) return sendJson(res, 400, { error: 'Meal must be breakfast, lunch, or dinner.' });
       const today = todayStr();
       if (date > today) return sendJson(res, 400, { error: 'Cannot log a future day.' });
       if (date < user.startDate) return sendJson(res, 400, { error: 'Before your start date.' });
@@ -478,6 +483,7 @@ const server = http.createServer(async (req, res) => {
       user.days[date].food.push({
         id: crypto.randomUUID(),
         label,
+        meal,
         calories: Math.round(calories),
         protein: Math.round(protein),
       });

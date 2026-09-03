@@ -7,10 +7,11 @@ A shared 75 Hard challenge tracker for a small group of friends/family — daily
 - **Daily checklist**, mode-dependent:
   - *Cutting/maintaining* — 2 workouts/day (one outdoors), water, reading, photo.
   - *Bulking* — 1 workout/day (strength & hypertrophy focus), water, reading, photo.
-- **Nutrition tracking** instead of a one-size-fits-all "diet" checkbox — each person sets their own daily calorie + protein target and logs food; a day's nutrition counts as met when protein clears the target and calories land close to it (±10%, whichever is looser).
+- **Nutrition tracking** instead of a one-size-fits-all "diet" checkbox — each person sets their own daily calorie + protein target and logs food by meal (breakfast/lunch/dinner); a day's nutrition counts as met when protein clears the target and calories land close to it (±10%, whichever is looser).
 - **Soft-penalty scoring** — missing a day doesn't reset you to Day 1. Instead it adds 2 days to your total (`75 + 2 × missed days`), and your progress keeps accumulating.
-- **Progress photos** — upload a real photo each day instead of just checking a box.
+- **Progress photos** — take a photo or choose one from your library each day instead of just checking a box, and browse your full photo history any time.
 - **Friends** — send/accept friend requests, then see a friend's daily checklist, nutrition status, and recent progress photos to keep each other honest.
+- **Daily motivational quotes** — a shared "quote of the day" plus a rotating quote between each section, both synced across the group by date.
 - A **Group** leaderboard of everyone in the tracker.
 
 ## Stack
