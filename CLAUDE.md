@@ -86,7 +86,7 @@ Defined in `server.js` as `STANDARD_TASKS` / `BULK_TASKS` (picked per-user by `t
 
 ## Motivational quotes
 
-`QUOTES` in `index.html` is a static bank of short attributed sayings. Selection is entirely client-side and deterministic per UTC calendar date: `quotesForToday(dateStr, 5)` hashes the date string and Fisher-Yates shuffles the bank with that seed, so everyone in the group sees the same "quote of the day" (rendered prominently above the Today card) and the same 4 divider quotes between the other cards, and they only change once a day — not on every reload. No server involvement; don't add an endpoint for this.
+`QUOTES` in `index.html` is a static bank of short attributed sayings — per the user's request, all 28 are from David Goggins, Ronnie Coleman, or Arnold Schwarzenegger (only genuinely-documented lines; Larry Wheels was asked for too but skipped for now, see the note in the session that made this change — not enough well-attested quotable material to include him without risking a fabricated attribution). Selection is entirely client-side and deterministic per UTC calendar date: `quotesForToday(dateStr, 5)` hashes the date string and Fisher-Yates shuffles the bank with that seed, so everyone in the group sees the same "quote of the day" (rendered prominently above the Today card) and the same 4 divider quotes between the other cards, and they only change once a day — not on every reload. `QUOTES` is also duplicated byte-for-byte in `server.js` for the push notification (see Push notifications section below) — edit both if you touch the bank.
 
 ## Push notifications: daily 9am reminder
 
