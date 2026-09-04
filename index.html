@@ -80,13 +80,14 @@
   .login-card p { color: var(--text-secondary); font-size: 14px; line-height: 1.55; margin: 10px 0 22px; }
   .field { text-align: left; margin-bottom: 12px; }
   .field label { display: block; font-size: 12px; color: var(--text-secondary); margin-bottom: 6px; font-weight: 500; }
-  input[type="text"], input[type="password"], input[type="number"] {
+  input[type="text"], input[type="password"], input[type="number"], textarea {
     width: 100%; padding: 11px 13px; border-radius: 10px; border: 1px solid var(--border);
     background: var(--surface-2); color: var(--text-primary); font-size: 15px; font-family: inherit;
     transition: border-color .15s, box-shadow .15s;
   }
-  input::placeholder { color: var(--muted); }
-  input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-wash); }
+  textarea { resize: vertical; min-height: 140px; line-height: 1.55; }
+  input::placeholder, textarea::placeholder { color: var(--muted); }
+  input:focus, textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-wash); }
   button {
     font-family: inherit; font-size: 13.5px; font-weight: 600; cursor: pointer;
     border-radius: 10px; border: 1px solid var(--border); padding: 10px 16px;
@@ -107,6 +108,28 @@
   button.ghost { background: transparent; border-color: transparent; color: var(--text-secondary); }
   button.ghost:hover { background: var(--surface-2); color: var(--text-primary); }
   #login-error { color: var(--critical); font-size: 13px; margin-top: 10px; min-height: 16px; }
+
+  /* ---- pull-to-refresh (installed-PWA only — standalone mode has no native
+     gesture for this, unlike a regular mobile browser tab) ---- */
+  .ptr-indicator {
+    position: fixed; top: 10px; left: 50%; z-index: 200;
+    display: flex; align-items: center; gap: 7px; padding: 8px 14px; border-radius: 20px;
+    background: var(--surface); border: 1px solid var(--border-strong); box-shadow: var(--shadow);
+    font-size: 12.5px; color: var(--text-secondary); font-weight: 600;
+    transform: translate(-50%, -60px); transition: transform .15s ease-out;
+    pointer-events: none;
+  }
+  .ptr-indicator[hidden] { display: none; }
+  .ptr-indicator.dragging { transition: none; }
+  .ptr-icon {
+    width: 15px; height: 15px; border: 2px solid var(--accent); border-top-color: transparent; border-radius: 50%;
+    display: inline-block; transform: rotate(0deg);
+  }
+  .ptr-indicator.refreshing .ptr-icon { animation: ptr-spin .7s linear infinite; }
+  @keyframes ptr-spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) {
+    .ptr-indicator.refreshing .ptr-icon { animation: none; }
+  }
 
   /* ---- app header ---- */
   #app-screen { display: none; }
@@ -376,6 +399,37 @@
   .friend-nut b.ok { color: var(--good); }
   .friend-nut b.bad { color: var(--critical); }
 
+  /* ---- journal ---- */
+  .journal-prompts {
+    font-size: 12.5px; color: var(--text-secondary); background: var(--surface-2); border: 1px solid var(--border);
+    border-radius: 10px; padding: 10px 13px; margin-bottom: 10px; line-height: 1.6;
+  }
+  .journal-prompts b { color: var(--text-primary); }
+  .journal-prompts ul { margin: 6px 0 0; padding-left: 18px; }
+  .journal-label { font-size: 12px; color: var(--text-secondary); margin-bottom: 6px; font-weight: 500; }
+  .journal-save-row { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
+  .journal-save-row button.primary { width: auto; flex: 1; }
+  .journal-save-status { font-size: 12.5px; color: var(--good); min-height: 16px; margin-top: 8px; }
+  .journal-history-item { padding: 14px 0; border-bottom: 1px solid var(--gridline); }
+  .journal-history-item:last-child { border-bottom: none; }
+  .journal-history-head {
+    display: flex; justify-content: space-between; align-items: baseline; gap: 10px;
+    font-size: 12px; color: var(--accent-2); font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 6px;
+  }
+  .journal-history-head span.jdate { color: var(--text-secondary); font-weight: 500; text-transform: none; letter-spacing: 0; }
+  .journal-history-text { font-size: 14px; line-height: 1.6; color: var(--text-primary); white-space: pre-wrap; }
+  .journal-modal-backdrop {
+    position: fixed; inset: 0; background: rgba(5,5,8,0.78); backdrop-filter: blur(2px);
+    display: flex; align-items: center; justify-content: center; padding: 20px; z-index: 100;
+  }
+  .journal-modal-backdrop[hidden] { display: none; }
+  .journal-modal {
+    background: var(--surface); border: 1px solid var(--border-strong); border-radius: 16px;
+    max-width: 520px; width: 100%; padding: 16px; box-shadow: var(--shadow);
+    max-height: 80vh; display: flex; flex-direction: column;
+  }
+  .journal-modal-body { overflow-y: auto; padding-right: 2px; }
+
   /* ---- push notification opt-in ---- */
   .notify-card {
     display: flex; align-items: center; gap: 12px; padding: 13px 16px; margin-bottom: 16px;
@@ -421,6 +475,11 @@
 </head>
 <body>
 
+<div class="ptr-indicator" id="ptr-indicator" hidden>
+  <span class="ptr-icon" id="ptr-icon"></span>
+  <span id="ptr-label">Pull to refresh</span>
+</div>
+
 <div id="login-screen">
   <div class="card login-card">
     <div class="logo">75</div>
@@ -453,6 +512,7 @@
 
     <div class="tabs">
       <button class="tab-btn active" id="tab-btn-today" data-tab="today">Today</button>
+      <button class="tab-btn" id="tab-btn-journal" data-tab="journal">Journal</button>
       <button class="tab-btn" id="tab-btn-progress" data-tab="progress">Progress</button>
     </div>
 
@@ -542,6 +602,29 @@
     <footer class="foot">75 Hard Tracker — Instructional Design Central, LLC</footer>
     </div>
 
+    <div id="tab-journal" hidden>
+      <div class="card">
+        <h2>Journal · <span id="journal-today-date"></span></h2>
+        <p class="rules-note" style="margin-top:0">A private space to write — your goals, your "why" for doing 75 Hard, how the challenge is changing you. Only you can see this. One entry per day.</p>
+        <div class="journal-prompts">
+          <b>Need a prompt?</b> Try writing about:
+          <ul>
+            <li>What's your "why" for doing 75 Hard?</li>
+            <li>What are your goals — for this challenge, and beyond it?</li>
+            <li>How has 75 Hard bettered you so far?</li>
+          </ul>
+        </div>
+        <div class="journal-label">Today's entry</div>
+        <textarea id="journal-textarea" maxlength="4000" placeholder="Write today's entry..."></textarea>
+        <div class="journal-save-row">
+          <button class="primary" id="journal-save-btn">Save entry</button>
+        </div>
+        <div class="journal-save-status" id="journal-save-status"></div>
+        <button class="ghost" id="journal-history-btn" style="width:100%;margin-top:6px">Past Journal Entries</button>
+      </div>
+      <footer class="foot">75 Hard Tracker — Instructional Design Central, LLC</footer>
+    </div>
+
     <div id="tab-progress" hidden>
       <div class="card">
         <h2>Progress Photos</h2>
@@ -550,6 +633,16 @@
       </div>
       <footer class="foot">75 Hard Tracker — Instructional Design Central, LLC</footer>
     </div>
+  </div>
+</div>
+
+<div class="journal-modal-backdrop" id="journal-modal-backdrop" hidden>
+  <div class="journal-modal">
+    <div class="photo-modal-head">
+      <span>Past Journal Entries</span>
+      <button class="ghost small" id="journal-modal-close">Close</button>
+    </div>
+    <div id="journal-modal-body" class="journal-modal-body"></div>
   </div>
 </div>
 
@@ -712,8 +805,10 @@
     quoteStrip3: document.getElementById('quote-strip-3'),
     quoteStrip4: document.getElementById('quote-strip-4'),
     tabBtnToday: document.getElementById('tab-btn-today'),
+    tabBtnJournal: document.getElementById('tab-btn-journal'),
     tabBtnProgress: document.getElementById('tab-btn-progress'),
     tabToday: document.getElementById('tab-today'),
+    tabJournal: document.getElementById('tab-journal'),
     tabProgress: document.getElementById('tab-progress'),
     calProgressLink: document.getElementById('cal-progress-link'),
     progressTimeline: document.getElementById('progress-timeline'),
@@ -726,6 +821,16 @@
     photoGalleryGrid: document.getElementById('photo-gallery-grid'),
     photoGalleryClose: document.getElementById('photo-gallery-close'),
     notifyCard: document.getElementById('notify-card'),
+    journalTodayDate: document.getElementById('journal-today-date'),
+    journalTextarea: document.getElementById('journal-textarea'),
+    journalSaveBtn: document.getElementById('journal-save-btn'),
+    journalSaveStatus: document.getElementById('journal-save-status'),
+    journalHistoryBtn: document.getElementById('journal-history-btn'),
+    journalModalBackdrop: document.getElementById('journal-modal-backdrop'),
+    journalModalBody: document.getElementById('journal-modal-body'),
+    journalModalClose: document.getElementById('journal-modal-close'),
+    ptrIndicator: document.getElementById('ptr-indicator'),
+    ptrLabel: document.getElementById('ptr-label'),
   };
 
   function saveCreds(c) {
@@ -808,6 +913,7 @@
     renderProgressTimeline();
     renderGroup(data.group);
     renderFriends();
+    renderJournal();
   }
 
   function photoUrl(ownerKey, date) {
@@ -970,14 +1076,16 @@
   // ---- tabs ----
 
   function switchTab(tab) {
-    var isToday = tab === 'today';
-    el.tabToday.hidden = !isToday;
-    el.tabProgress.hidden = isToday;
-    el.tabBtnToday.classList.toggle('active', isToday);
-    el.tabBtnProgress.classList.toggle('active', !isToday);
+    el.tabToday.hidden = tab !== 'today';
+    el.tabJournal.hidden = tab !== 'journal';
+    el.tabProgress.hidden = tab !== 'progress';
+    el.tabBtnToday.classList.toggle('active', tab === 'today');
+    el.tabBtnJournal.classList.toggle('active', tab === 'journal');
+    el.tabBtnProgress.classList.toggle('active', tab === 'progress');
     window.scrollTo(0, 0);
   }
   el.tabBtnToday.addEventListener('click', function () { switchTab('today'); });
+  el.tabBtnJournal.addEventListener('click', function () { switchTab('journal'); });
   el.tabBtnProgress.addEventListener('click', function () { switchTab('progress'); });
   el.calProgressLink.addEventListener('click', function (e) { e.preventDefault(); switchTab('progress'); });
 
@@ -1044,6 +1152,56 @@
   });
   document.addEventListener('keydown', function (e) {
     if (e.key === 'Escape' && el.photoModalBackdrop.hidden && !el.photoGalleryBackdrop.hidden) closeFriendGallery();
+  });
+
+  // ---- journal: one free-text entry per day, private (never shown to
+  // friends/group, never scored — same stance as body weight) ----
+
+  function renderJournal() {
+    el.journalTodayDate.textContent = fmtDate(TODAY);
+    var todayRec = (me.days && me.days[TODAY]) || {};
+    el.journalTextarea.value = todayRec.journal || '';
+    el.journalSaveStatus.textContent = '';
+  }
+
+  el.journalSaveBtn.addEventListener('click', function () {
+    el.journalSaveBtn.disabled = true;
+    el.journalSaveStatus.textContent = 'Saving…';
+    api('POST', '/api/journal/save', { name: creds.name, pin: creds.pin, date: TODAY, text: el.journalTextarea.value })
+      .then(function () { return loadState(); })
+      .then(function () { el.journalSaveStatus.textContent = 'Saved.'; })
+      .catch(function (e) { el.journalSaveStatus.textContent = ''; alert(e.message); })
+      .then(function () { el.journalSaveBtn.disabled = false; });
+  });
+
+  function openJournalHistory() {
+    var days = me.days || {};
+    var entries = Object.keys(days)
+      .filter(function (d) { return d !== TODAY && days[d] && days[d].journal; })
+      .sort().reverse();
+    if (entries.length === 0) {
+      el.journalModalBody.innerHTML = '<p class="rules-note" style="margin:0">No past entries yet — entries you save will show up here the next day.</p>';
+    } else {
+      el.journalModalBody.innerHTML = entries.map(function (d) {
+        return '<div class="journal-history-item">' +
+          '<div class="journal-history-head"><span>Day ' + dayNumberFor(d) + '</span><span class="jdate">' + fmtDate(d) + '</span></div>' +
+          '<div class="journal-history-text">' + escapeHtml(days[d].journal) + '</div>' +
+          '</div>';
+      }).join('');
+    }
+    el.journalModalBackdrop.hidden = false;
+  }
+  function closeJournalHistory() {
+    el.journalModalBackdrop.hidden = true;
+    el.journalModalBody.innerHTML = '';
+  }
+  el.journalHistoryBtn.addEventListener('click', openJournalHistory);
+  el.journalModalClose.addEventListener('click', closeJournalHistory);
+  el.journalModalBackdrop.addEventListener('click', function (e) {
+    if (e.target === el.journalModalBackdrop) closeJournalHistory();
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && !el.journalModalBackdrop.hidden) closeJournalHistory();
   });
 
   // ---- nutrition ----
@@ -1594,6 +1752,69 @@
       renderNotifyCard('off');
     }).catch(function () { /* service worker unsupported/blocked in this context — leave hidden */ });
   }
+
+  // ---- pull-to-refresh (installed-PWA only) ----
+  // Standalone/home-screen mode has no native pull-to-refresh gesture — that's
+  // a regular mobile browser tab's built-in behavior, and display:standalone
+  // deliberately opts out of the browser chrome that provides it. This
+  // replicates it: dragging down from the very top of the page triggers a
+  // real page reload, same as refreshing a site in a normal browser tab.
+  (function () {
+    if (!isStandalone) return;
+    var THRESHOLD = 70;  // px of (damped) pull needed to trigger a refresh
+    var DAMPING = 0.5;   // resistance, so it takes roughly 2x that in actual finger travel
+    var startY = null;
+    var dragging = false;
+    var reachedThreshold = false;
+    var triggered = false;
+
+    function atTop() {
+      return (document.scrollingElement || document.documentElement).scrollTop <= 0;
+    }
+    function reset() {
+      dragging = false;
+      startY = null;
+      el.ptrIndicator.classList.remove('dragging');
+      el.ptrIndicator.style.transform = '';
+      setTimeout(function () { if (!triggered) el.ptrIndicator.hidden = true; }, 200);
+    }
+
+    document.addEventListener('touchstart', function (e) {
+      if (triggered) return;
+      startY = (e.touches.length === 1 && atTop()) ? e.touches[0].clientY : null;
+      dragging = false;
+      reachedThreshold = false;
+    }, { passive: true });
+
+    document.addEventListener('touchmove', function (e) {
+      if (startY == null || triggered) return;
+      var dy = e.touches[0].clientY - startY;
+      if (dy <= 0 || !atTop()) { if (dragging) reset(); return; }
+      dragging = true;
+      e.preventDefault();
+      el.ptrIndicator.classList.add('dragging');
+      el.ptrIndicator.hidden = false;
+      var pull = Math.min(dy * DAMPING, THRESHOLD + 24);
+      reachedThreshold = pull >= THRESHOLD;
+      el.ptrIndicator.style.transform = 'translate(-50%, ' + (pull - 60) + 'px)';
+      el.ptrLabel.textContent = reachedThreshold ? 'Release to refresh' : 'Pull to refresh';
+    }, { passive: false });
+
+    document.addEventListener('touchend', function () {
+      if (!dragging) { startY = null; return; }
+      if (reachedThreshold) {
+        triggered = true;
+        el.ptrIndicator.classList.remove('dragging');
+        el.ptrIndicator.classList.add('refreshing');
+        el.ptrLabel.textContent = 'Refreshing…';
+        el.ptrIndicator.style.transform = 'translate(-50%, 16px)';
+        setTimeout(function () { location.reload(); }, 300);
+      } else {
+        reset();
+      }
+    }, { passive: true });
+    document.addEventListener('touchcancel', function () { if (!triggered) reset(); }, { passive: true });
+  })();
 
   // Try auto-login from stored creds.
   var stored = loadCreds();

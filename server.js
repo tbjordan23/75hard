@@ -16,6 +16,7 @@ const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
 const DATA_FILE = path.join(DATA_DIR, 'data.json');
 const PHOTOS_DIR = path.join(DATA_DIR, 'photos');
 const MAX_PHOTO_BYTES = 6 * 1024 * 1024;
+const JOURNAL_MAX_LENGTH = 4000;
 const PHOTO_MIME = { jpg: 'image/jpeg', png: 'image/png', webp: 'image/webp', gif: 'image/gif' };
 const VAPID_CONTACT = process.env.VAPID_CONTACT || 'mailto:tbjordan@gmail.com';
 const STATIC_FILES = {
@@ -861,6 +862,36 @@ const server = http.createServer(async (req, res) => {
       const today = todayStr(user.timezone);
       const status = computeStatus(user, today);
       return sendJson(res, 200, { ok: true, day: user.days[date] || {}, status });
+    }
+
+    // Save (create, update, or clear) a day's journal entry — free-text
+    // reflection on goals/why/progress. One entry per day, day-scoped like
+    // weight/food. Purely private: never in friendSummary/publicUser/group,
+    // never counted toward tasksForUser/dayComplete — same stance as body
+    // weight. An empty (or whitespace-only) text clears the day's entry
+    // rather than storing a blank string.
+    if (req.method === 'POST' && url.pathname === '/api/journal/save') {
+      const body = await readBody(req);
+      const data = loadData();
+      const auth = authenticate(data, body.name, body.pin, body.tz);
+      if (!auth) return sendJson(res, 401, { error: 'Not authenticated.' });
+      const { user } = auth;
+
+      const date = String(body.date || '');
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return sendJson(res, 400, { error: 'Bad date.' });
+      const today = todayStr(user.timezone);
+      if (date > today) return sendJson(res, 400, { error: 'Cannot log a future day.' });
+      if (date < user.startDate) return sendJson(res, 400, { error: 'Before your start date.' });
+
+      const text = String(body.text || '').trim().slice(0, JOURNAL_MAX_LENGTH);
+      user.days[date] = user.days[date] || {};
+      if (text) {
+        user.days[date].journal = text;
+      } else {
+        delete user.days[date].journal;
+      }
+      saveData(data);
+      return sendJson(res, 200, { ok: true, day: user.days[date] });
     }
 
     // Everyone registered, except yourself — for picking who to send a friend request to.
