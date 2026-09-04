@@ -18,13 +18,6 @@ const PHOTOS_DIR = path.join(DATA_DIR, 'photos');
 const MAX_PHOTO_BYTES = 6 * 1024 * 1024;
 const PHOTO_MIME = { jpg: 'image/jpeg', png: 'image/png', webp: 'image/webp', gif: 'image/gif' };
 const VAPID_CONTACT = process.env.VAPID_CONTACT || 'mailto:tbjordan@gmail.com';
-// AI Scan (meal-photo calorie/protein estimation) calls the Claude API
-// directly over fetch (built into Node 18+) rather than pulling in
-// @anthropic-ai/sdk — one JSON POST doesn't earn a new dependency, unlike
-// web-push's fiddly encryption/VAPID protocol. Requires ANTHROPIC_API_KEY;
-// the feature cleanly reports itself unconfigured if it's unset.
-const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || '';
-const ANTHROPIC_MODEL = process.env.ANTHROPIC_MODEL || 'claude-sonnet-5';
 const STATIC_FILES = {
   '/manifest.json': { file: path.join(__dirname, 'manifest.json'), type: 'application/manifest+json' },
   '/sw.js': { file: path.join(__dirname, 'sw.js'), type: 'application/javascript' },
@@ -325,93 +318,6 @@ function nutritionStatus(user, rec) {
     calorieTolerance: Math.round(tolerance),
     proteinOk,
     calorieOk,
-  };
-}
-
-// AI Scan: asks Claude to estimate a meal photo's calories/protein via a
-// forced tool call, so the response is structured JSON rather than prose to
-// parse. Best-effort by design — the prompt tells it never to refuse or ask
-// a follow-up, since a rough estimate the user can correct beats a refusal.
-async function estimateMealFromImage(mediaType, base64Data) {
-  if (!ANTHROPIC_API_KEY) {
-    const err = new Error('AI scan is not configured on this server (missing ANTHROPIC_API_KEY).');
-    err.code = 'NOT_CONFIGURED';
-    throw err;
-  }
-
-  const tool = {
-    name: 'log_meal_estimate',
-    description: 'Record a best-effort nutrition estimate for the meal shown in the photo.',
-    input_schema: {
-      type: 'object',
-      properties: {
-        label: { type: 'string', description: 'Short description of the meal, e.g. "Grilled chicken, rice, broccoli".' },
-        calories: { type: 'integer', description: 'Estimated total calories for everything shown.' },
-        protein: { type: 'integer', description: 'Estimated total protein in grams for everything shown.' },
-        confidence: { type: 'string', enum: ['low', 'medium', 'high'], description: 'How confident this estimate is.' },
-      },
-      required: ['label', 'calories', 'protein', 'confidence'],
-    },
-  };
-
-  let res;
-  try {
-    res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'x-api-key': ANTHROPIC_API_KEY,
-        'anthropic-version': '2023-06-01',
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: ANTHROPIC_MODEL,
-        max_tokens: 512,
-        tools: [tool],
-        tool_choice: { type: 'tool', name: 'log_meal_estimate' },
-        messages: [{
-          role: 'user',
-          content: [
-            { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64Data } },
-            {
-              type: 'text',
-              text: 'Estimate calories and protein for the meal in this photo, for a personal fitness ' +
-                "tracker. Give your best numeric estimate even if you're not fully certain — never refuse " +
-                'or ask a follow-up question. If multiple items are visible, estimate the total for everything shown.',
-            },
-          ],
-        }],
-      }),
-    });
-  } catch (e) {
-    const err = new Error('Could not reach the AI scan service.');
-    err.code = 'API_ERROR';
-    throw err;
-  }
-
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    console.error('Anthropic API error', res.status, text.slice(0, 500));
-    const err = new Error('AI scan request failed (' + res.status + ').');
-    err.code = 'API_ERROR';
-    throw err;
-  }
-
-  const json = await res.json();
-  const toolUse = (json.content || []).find(b => b.type === 'tool_use' && b.name === 'log_meal_estimate');
-  const input = toolUse && toolUse.input;
-  const calories = input && Math.round(Number(input.calories));
-  const protein = input && Math.round(Number(input.protein));
-  if (!input || !Number.isFinite(calories) || !Number.isFinite(protein)) {
-    const err = new Error('AI scan could not produce an estimate for that photo.');
-    err.code = 'NO_ESTIMATE';
-    throw err;
-  }
-
-  return {
-    label: String(input.label || 'Meal').trim().slice(0, 120) || 'Meal',
-    calories: Math.min(10000, Math.max(0, calories)),
-    protein: Math.min(1000, Math.max(0, protein)),
-    confidence: ['low', 'medium', 'high'].includes(input.confidence) ? input.confidence : 'medium',
   };
 }
 
@@ -858,31 +764,6 @@ const server = http.createServer(async (req, res) => {
       if (user.days[date]) delete user.days[date].weight;
       saveData(data);
       return sendJson(res, 200, { ok: true, day: user.days[date] || {} });
-    }
-
-    // AI Scan: send a meal photo to Claude for a best-effort calorie/protein
-    // estimate. Returns the estimate to the client to review/edit — it never
-    // writes to the food log itself, that still goes through POST
-    // /api/food/add once the user taps "Add" on the (possibly-edited) result.
-    if (req.method === 'POST' && url.pathname === '/api/food/ai-scan') {
-      const body = await readBody(req, MAX_PHOTO_BYTES + 100000);
-      const data = loadData();
-      const auth = authenticate(data, body.name, body.pin, body.tz);
-      if (!auth) return sendJson(res, 401, { error: 'Not authenticated.' });
-      if (auth.tzChanged) saveData(data);
-
-      const parsed = parseImageDataUrl(body.dataUrl);
-      if (!parsed) return sendJson(res, 400, { error: 'Unsupported image format (use JPG, PNG, WEBP, or GIF).' });
-      if (parsed.buffer.length > MAX_PHOTO_BYTES) return sendJson(res, 400, { error: 'Image too large (max 6MB).' });
-
-      try {
-        const estimate = await estimateMealFromImage(PHOTO_MIME[parsed.ext], parsed.buffer.toString('base64'));
-        return sendJson(res, 200, { ok: true, estimate });
-      } catch (err) {
-        console.error('AI scan failed:', err.message);
-        const code = err.code === 'NOT_CONFIGURED' ? 501 : 502;
-        return sendJson(res, code, { error: err.message || 'AI scan failed — enter the meal manually instead.' });
-      }
     }
 
     // Add one food log entry to a given date.
