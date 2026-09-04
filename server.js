@@ -226,6 +226,37 @@ function daysBetween(a, b) {
   return Math.round((db - da) / 86400000);
 }
 
+// ---------- one-time migration: fix Day 1 for pre-local-midnight-fix accounts ----------
+//
+// Before commit c3cdcd7 (2026-09-03T22:08:34Z), "today" was computed from
+// UTC, not each user's local zone (see todayStr() above). Anyone west of
+// UTC — i.e. any US timezone, which covers this group — who used the app
+// the evening of 2026-09-02 their local time was already past midnight in
+// UTC, so their Day 1 got filed under 2026-09-03 instead of 2026-09-02.
+// Once the fix landed, that collided with the *correct* 2026-09-03 "today"
+// and erased the Day 1 -> Day 2 rollover (same checklist, dayNumber stuck
+// at 1). Runs once at boot, guarded by data.dayBoundaryMigrated so it can
+// never fire twice, and only ever touches this one specific historical
+// date pair — safe to leave in permanently rather than a throwaway script.
+const PRE_FIX_BUGGY_DATE = '2026-09-03';
+const PRE_FIX_CORRECTED_DATE = '2026-09-02';
+function migrateDayBoundary(data) {
+  if (data.dayBoundaryMigrated) return false;
+  for (const user of Object.values(data.users || {})) {
+    if (user.startDate !== PRE_FIX_BUGGY_DATE) continue;
+    // Already has a real record on the corrected date — don't clobber it,
+    // leave this account for manual review instead of guessing.
+    if (user.days && user.days[PRE_FIX_CORRECTED_DATE]) continue;
+    user.startDate = PRE_FIX_CORRECTED_DATE;
+    if (user.days && user.days[PRE_FIX_BUGGY_DATE]) {
+      user.days[PRE_FIX_CORRECTED_DATE] = user.days[PRE_FIX_BUGGY_DATE];
+      delete user.days[PRE_FIX_BUGGY_DATE];
+    }
+  }
+  data.dayBoundaryMigrated = true;
+  return true;
+}
+
 // ---------- auth ----------
 
 function hashPin(pin, salt) {
@@ -1179,6 +1210,11 @@ function loadData_mergeRemoval(user, key) {
 server.listen(PORT, () => {
   console.log(`75 Hard tracker listening on http://localhost:${PORT}`);
   console.log(`Data file: ${DATA_FILE}`);
+  const data = loadData();
+  if (migrateDayBoundary(data)) {
+    saveData(data);
+    console.log('Ran one-time day-boundary migration (see migrateDayBoundary in server.js).');
+  }
   ensureVapidKeys();
   setInterval(tickPushScheduler, 30 * 1000);
 });
