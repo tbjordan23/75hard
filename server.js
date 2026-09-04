@@ -18,6 +18,10 @@ const PHOTOS_DIR = path.join(DATA_DIR, 'photos');
 const MAX_PHOTO_BYTES = 6 * 1024 * 1024;
 const PHOTO_MIME = { jpg: 'image/jpeg', png: 'image/png', webp: 'image/webp', gif: 'image/gif' };
 const VAPID_CONTACT = process.env.VAPID_CONTACT || 'mailto:tbjordan@gmail.com';
+// TEMPORARY — see /api/debug/day-audit below; remove both (and the env var)
+// once the day-boundary migration cleanup is confirmed done. Token comes
+// from an env var, not a literal, so it's never committed to source.
+const DEBUG_AUDIT_TOKEN = process.env.DEBUG_AUDIT_TOKEN || '';
 const STATIC_FILES = {
   '/manifest.json': { file: path.join(__dirname, 'manifest.json'), type: 'application/manifest+json' },
   '/sw.js': { file: path.join(__dirname, 'sw.js'), type: 'application/javascript' },
@@ -247,6 +251,30 @@ function migrateDayBoundary(data) {
     }
   }
   data.dayBoundaryMigrated = true;
+  return true;
+}
+
+// Follow-up to migrateDayBoundary(): that migration moved the JSON day
+// record (including its `photo` field) from PRE_FIX_BUGGY_DATE to
+// PRE_FIX_CORRECTED_DATE, but the actual photo *file* on disk is named by a
+// hash of owner key + date (see photoFilePath()) — renaming the JSON key
+// alone leaves the file sitting under the old date's hash, so it 404s once
+// the day record points at the new date. Runs once, guarded by
+// data.dayBoundaryPhotosMigrated, independently of whether the day/startDate
+// shift happened via migrateDayBoundary or the account already had a
+// correctly-dated record (harmless no-op either way — it only acts when the
+// corrected path is missing a file, but the buggy-date one has it).
+function migrateDayBoundaryPhotos(data) {
+  if (data.dayBoundaryPhotosMigrated) return false;
+  for (const [key, user] of Object.entries(data.users || {})) {
+    const rec = user.days && user.days[PRE_FIX_CORRECTED_DATE];
+    if (!rec || !rec.photo) continue;
+    const correctedPath = photoFilePath(key, PRE_FIX_CORRECTED_DATE, rec.photo.ext);
+    if (fs.existsSync(correctedPath)) continue; // already in the right place
+    const buggyPath = photoFilePath(key, PRE_FIX_BUGGY_DATE, rec.photo.ext);
+    if (fs.existsSync(buggyPath)) fs.renameSync(buggyPath, correctedPath);
+  }
+  data.dayBoundaryPhotosMigrated = true;
   return true;
 }
 
@@ -497,6 +525,32 @@ const server = http.createServer(async (req, res) => {
       const html = fs.readFileSync(path.join(__dirname, 'index.html'));
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
       return res.end(html);
+    }
+
+    // TEMPORARY — diagnostic-only, token-gated, no PINs/salts/photo bytes
+    // returned. Added to read real account state for the day-boundary
+    // migration cleanup; remove this route once that's confirmed done.
+    if (req.method === 'GET' && url.pathname === '/api/debug/day-audit') {
+      if (!DEBUG_AUDIT_TOKEN || url.searchParams.get('token') !== DEBUG_AUDIT_TOKEN) return sendJson(res, 404, { error: 'Not found' });
+      const data = loadData();
+      const out = Object.entries(data.users || {}).map(([key, u]) => {
+        const tz = u.timezone || null;
+        const today = todayStr(tz);
+        return {
+          key,
+          name: u.displayName,
+          timezone: tz,
+          startDate: u.startDate,
+          todayForUser: today,
+          dayNumber: computeStatus(u, today).dayNumber,
+          days: Object.keys(u.days || {}).sort().map(d => ({
+            date: d,
+            hasPhoto: !!(u.days[d] && u.days[d].photo),
+            keys: Object.keys(u.days[d] || {}),
+          })),
+        };
+      });
+      return sendJson(res, 200, { users: out });
     }
 
     // PWA static files (manifest, service worker, icons) — needed for "Add to
@@ -1092,9 +1146,11 @@ server.listen(PORT, () => {
   console.log(`75 Hard tracker listening on http://localhost:${PORT}`);
   console.log(`Data file: ${DATA_FILE}`);
   const data = loadData();
-  if (migrateDayBoundary(data)) {
+  let migrated = migrateDayBoundary(data);
+  if (migrateDayBoundaryPhotos(data)) migrated = true;
+  if (migrated) {
     saveData(data);
-    console.log('Ran one-time day-boundary migration (see migrateDayBoundary in server.js).');
+    console.log('Ran one-time day-boundary migration(s) (see migrateDayBoundary/migrateDayBoundaryPhotos in server.js).');
   }
   ensureVapidKeys();
   setInterval(tickPushScheduler, 30 * 1000);

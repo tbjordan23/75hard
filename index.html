@@ -288,10 +288,10 @@
   .tab-btn:hover { color: var(--text-primary); }
   .tab-btn.active { background: var(--surface); color: var(--text-primary); box-shadow: 0 1px 3px rgba(0,0,0,0.4); }
 
-  /* ---- calendar photo modal ---- */
+  /* ---- calendar / friend-gallery photo modal ---- */
   .photo-modal-backdrop {
     position: fixed; inset: 0; background: rgba(5,5,8,0.78); backdrop-filter: blur(2px);
-    display: flex; align-items: center; justify-content: center; padding: 20px; z-index: 100;
+    display: flex; align-items: center; justify-content: center; padding: 20px; z-index: 110;
   }
   .photo-modal-backdrop[hidden] { display: none; }
   .photo-modal {
@@ -304,6 +304,31 @@
     padding: 40px 10px; text-align: center; color: var(--muted); font-size: 13px;
     display: flex; flex-direction: column; align-items: center; gap: 10px;
   }
+
+  /* ---- friend progress gallery modal ---- */
+  .photo-gallery-backdrop {
+    position: fixed; inset: 0; background: rgba(5,5,8,0.78); backdrop-filter: blur(2px);
+    display: flex; align-items: center; justify-content: center; padding: 20px; z-index: 100;
+  }
+  .photo-gallery-backdrop[hidden] { display: none; }
+  .photo-gallery-modal {
+    background: var(--surface); border: 1px solid var(--border-strong); border-radius: 16px;
+    max-width: 480px; width: 100%; padding: 16px; box-shadow: var(--shadow);
+    max-height: 80vh; display: flex; flex-direction: column;
+  }
+  .photo-gallery-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 12px;
+    overflow-y: auto; padding-right: 2px;
+  }
+  .gallery-item {
+    background: none; border: none; padding: 0; cursor: pointer; display: flex; flex-direction: column; gap: 5px;
+    align-items: center; font: inherit; color: inherit;
+  }
+  .gallery-item img {
+    width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 10px; border: 1px solid var(--border);
+  }
+  .gallery-item:hover img { border-color: var(--accent); }
+  .gallery-item-date { font-size: 11px; color: var(--text-secondary); text-align: center; }
 
   /* ---- my photo gallery (Your Progress card preview pointer) ---- */
   .gallery-grid { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
@@ -350,12 +375,6 @@
   .friend-nut { display: flex; gap: 16px; font-size: 12px; color: var(--text-secondary); margin: 6px 0; flex-wrap: wrap; }
   .friend-nut b.ok { color: var(--good); }
   .friend-nut b.bad { color: var(--critical); }
-  .friend-photos-label { font-size: 11.5px; color: var(--muted); margin-top: 8px; }
-  .friend-photos { display: flex; gap: 6px; margin-top: 4px; flex-wrap: wrap; }
-  .friend-photos img {
-    width: 46px; height: 46px; border-radius: 8px; object-fit: cover; border: 1px solid var(--border);
-  }
-  .friend-photos a:first-child img { width: 60px; height: 60px; }
 
   /* ---- push notification opt-in ---- */
   .notify-card {
@@ -534,6 +553,16 @@
   </div>
 </div>
 
+<div class="photo-gallery-backdrop" id="photo-gallery-backdrop" hidden>
+  <div class="photo-gallery-modal">
+    <div class="photo-modal-head">
+      <span id="photo-gallery-title"></span>
+      <button class="ghost small" id="photo-gallery-close">Close</button>
+    </div>
+    <div id="photo-gallery-grid" class="photo-gallery-grid"></div>
+  </div>
+</div>
+
 <div class="photo-modal-backdrop" id="photo-modal-backdrop" hidden>
   <div class="photo-modal">
     <div class="photo-modal-head">
@@ -704,6 +733,10 @@
     photoModalDate: document.getElementById('photo-modal-date'),
     photoModalBody: document.getElementById('photo-modal-body'),
     photoModalClose: document.getElementById('photo-modal-close'),
+    photoGalleryBackdrop: document.getElementById('photo-gallery-backdrop'),
+    photoGalleryTitle: document.getElementById('photo-gallery-title'),
+    photoGalleryGrid: document.getElementById('photo-gallery-grid'),
+    photoGalleryClose: document.getElementById('photo-gallery-close'),
     notifyCard: document.getElementById('notify-card'),
   };
 
@@ -942,7 +975,7 @@
     }).join('');
 
     Array.prototype.forEach.call(el.progressTimeline.querySelectorAll('img'), function (img) {
-      img.addEventListener('click', function () { openPhotoModal(img.getAttribute('data-date')); });
+      img.addEventListener('click', function () { openPhotoModal(creds.key, img.getAttribute('data-date')); });
     });
   }
 
@@ -960,13 +993,23 @@
   el.tabBtnProgress.addEventListener('click', function () { switchTab('progress'); });
   el.calProgressLink.addEventListener('click', function (e) { e.preventDefault(); switchTab('progress'); });
 
-  // ---- calendar day photo modal ----
+  // ---- single-photo modal: calendar days, the Progress tab, and (enlarged)
+  // friend-gallery thumbnails all share this one viewer ----
 
-  function openPhotoModal(date) {
-    var rec = (me.days && me.days[date]) || {};
-    el.photoModalDate.textContent = fmtDate(date);
-    if (rec.photo) {
-      el.photoModalBody.innerHTML = '<img src="' + photoUrl(creds.key, date) + '" alt="Progress photo — ' + date + '">';
+  // ownerKey defaults to the logged-in user (calendar/Progress-tab callers);
+  // pass a friend's key + display name to view one of their photos instead.
+  function openPhotoModal(ownerKey, date, ownerLabel) {
+    ownerKey = ownerKey || creds.key;
+    var isSelf = ownerKey === creds.key;
+    // For our own days we know from `me.days` whether a photo really exists
+    // (a calendar cell can be clicked with nothing logged); friend-gallery
+    // thumbnails only ever link to dates friendSummary already confirmed
+    // have a photo, so there's no "empty" case to check for those.
+    var hasPhoto = isSelf ? !!((me.days && me.days[date] && me.days[date].photo)) : true;
+    el.photoModalDate.textContent = (ownerLabel ? ownerLabel + ' — ' : '') + fmtDate(date);
+    if (hasPhoto) {
+      var alt = (ownerLabel ? escapeHtml(ownerLabel) + ' — ' : '') + 'Progress photo — ' + date;
+      el.photoModalBody.innerHTML = '<img src="' + photoUrl(ownerKey, date) + '" alt="' + alt + '">';
     } else {
       el.photoModalBody.innerHTML = '<div class="photo-modal-empty">' + ICONS.cameraLg + '<span>No photo logged for this day.</span></div>';
     }
@@ -982,6 +1025,37 @@
   });
   document.addEventListener('keydown', function (e) {
     if (e.key === 'Escape' && !el.photoModalBackdrop.hidden) closePhotoModal();
+  });
+
+  // ---- friend progress gallery: thumbnail grid of a friend's full photo
+  // history, labeled by date; clicking a thumbnail enlarges it in the
+  // single-photo modal above (stacked on top — closing it returns here) ----
+
+  function openFriendGallery(friendKey, friendName, photoDates) {
+    el.photoGalleryTitle.textContent = 'View ' + friendName + ' Progress';
+    el.photoGalleryGrid.innerHTML = photoDates.map(function (d) {
+      return '<button class="gallery-item" data-date="' + d + '">' +
+        '<img src="' + photoUrl(friendKey, d) + '" loading="lazy" alt="' + escapeHtml(friendName) + ' — ' + d + '">' +
+        '<span class="gallery-item-date">' + fmtDateShort(d) + '</span>' +
+        '</button>';
+    }).join('');
+    Array.prototype.forEach.call(el.photoGalleryGrid.querySelectorAll('.gallery-item'), function (btn) {
+      btn.addEventListener('click', function () {
+        openPhotoModal(friendKey, btn.getAttribute('data-date'), friendName);
+      });
+    });
+    el.photoGalleryBackdrop.hidden = false;
+  }
+  function closeFriendGallery() {
+    el.photoGalleryBackdrop.hidden = true;
+    el.photoGalleryGrid.innerHTML = '';
+  }
+  el.photoGalleryClose.addEventListener('click', closeFriendGallery);
+  el.photoGalleryBackdrop.addEventListener('click', function (e) {
+    if (e.target === el.photoGalleryBackdrop) closeFriendGallery();
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && el.photoModalBackdrop.hidden && !el.photoGalleryBackdrop.hidden) closeFriendGallery();
   });
 
   // ---- nutrition ----
@@ -1274,7 +1348,7 @@
       cell.textContent = isToday ? i : '';
       if (date <= TODAY) {
         cell.classList.add('clickable');
-        (function (d) { cell.addEventListener('click', function () { openPhotoModal(d); }); })(date);
+        (function (d) { cell.addEventListener('click', function () { openPhotoModal(creds.key, d); }); })(date);
       }
       el.calGrid.appendChild(cell);
     }
@@ -1371,10 +1445,7 @@
             : '<span>No nutrition goals set yet</span>') +
         '</div>' +
         (f.photoDates.length > 0
-          ? '<div class="friend-photos-label">Photos (' + f.photoDates.length + ')</div>' +
-            '<div class="friend-photos">' + f.photoDates.map(function (d) {
-              return '<a href="' + photoUrl(f.key, d) + '" target="_blank" rel="noopener" title="' + d + '"><img src="' + photoUrl(f.key, d) + '" loading="lazy" alt="' + escapeHtml(f.name) + ' — ' + d + '"></a>';
-            }).join('') + '</div>'
+          ? '<button class="ghost small view-progress-btn" data-friend-key="' + f.key + '" style="margin-top:8px">View ' + escapeHtml(f.name) + ' Progress</button>'
           : '<p class="rules-note" style="margin:6px 0 0">No photos yet.</p>') +
         '</div>';
     });
@@ -1387,6 +1458,10 @@
           .then(function () { return loadState(); })
           .catch(function (e) { alert(e.message); });
       });
+    });
+    friends.forEach(function (f) {
+      var btn = el.friendsList.querySelector('.view-progress-btn[data-friend-key="' + f.key + '"]');
+      if (btn) btn.addEventListener('click', function () { openFriendGallery(f.key, f.name, f.photoDates); });
     });
   }
 
