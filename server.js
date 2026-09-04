@@ -274,6 +274,29 @@ function migrateDayBoundaryPhotos(data) {
   return true;
 }
 
+// One-off cleanup: Bentley's account had a stray day record already sitting
+// on 2026-09-04 (tomorrow, relative to his local "today" of 2026-09-03) —
+// {workout1, workout2, food} all true, no photo — almost certainly written
+// during the pre-fix window when a stale client-side TODAY briefly computed
+// a day ahead. Left alone it would make tomorrow's checklist load with
+// those three already checked. Runs once, guarded by
+// data.bentleyStrayFutureDayCleared, and only removes the record if it
+// still exactly matches that known shape — if it's since changed (e.g. he
+// actually used the app on that date once it arrived), this is a no-op and
+// leaves it for a fresh look rather than guessing.
+function clearBentleyStrayFutureDay(data) {
+  if (data.bentleyStrayFutureDayCleared) return false;
+  data.bentleyStrayFutureDayCleared = true;
+  const user = data.users && data.users['bentley'];
+  const rec = user && user.days && user.days['2026-09-04'];
+  if (!rec) return true;
+  const keys = Object.keys(rec).sort().join(',');
+  if (keys === 'food,workout1,workout2' && rec.workout1 === true && rec.workout2 === true && Array.isArray(rec.food)) {
+    delete user.days['2026-09-04'];
+  }
+  return true;
+}
+
 // ---------- auth ----------
 
 function hashPin(pin, salt) {
@@ -1118,9 +1141,10 @@ server.listen(PORT, () => {
   const data = loadData();
   let migrated = migrateDayBoundary(data);
   if (migrateDayBoundaryPhotos(data)) migrated = true;
+  if (clearBentleyStrayFutureDay(data)) migrated = true;
   if (migrated) {
     saveData(data);
-    console.log('Ran one-time day-boundary migration(s) (see migrateDayBoundary/migrateDayBoundaryPhotos in server.js).');
+    console.log('Ran one-time day-boundary migration(s) (see migrateDayBoundary/migrateDayBoundaryPhotos/clearBentleyStrayFutureDay in server.js).');
   }
   ensureVapidKeys();
   setInterval(tickPushScheduler, 30 * 1000);
